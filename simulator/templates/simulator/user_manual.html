@@ -1,0 +1,288 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Manual - 100ProSim</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, #2d5a2d 0%, #66cc66 100%);
+            padding: 1rem 0;
+        }
+        
+        .navbar-brand {
+            color: white !important;
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        
+        .manual-container {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            margin: 30px auto;
+            max-width: 1400px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        h2 {
+            color: #2d5a2d;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #66cc66;
+            padding-bottom: 15px;
+        }
+        
+        h3 {
+            color: #4a7c4a;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        
+        .screenshot-container {
+            margin: 30px 0;
+            text-align: center;
+        }
+        
+        .screenshot-container img {
+            max-width: 900px;
+            width: 100%;
+            height: auto;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+        
+        .screenshot-caption {
+            margin-top: 15px;
+            font-style: italic;
+            color: #666;
+            font-size: 0.95rem;
+        }
+        
+        .step-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #66cc66;
+            border-radius: 5px;
+        }
+        
+        .note-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{% url 'simulator:landing_page' %}">
+                🌱 100ProSim - Energy Simulation System
+            </a>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="manual-container">
+            <h2>📖 User Manual - Land Use Data Management</h2>
+            
+            <h3>Step 1: Accessing Land Use Data</h3>
+            <div class="step-item">
+                <strong>Navigate to the Land Use Data page from the sidebar menu</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/landuse_step1.png' %}" 
+                     alt="Land Use Data Page">
+                <p class="screenshot-caption">Figure 1: Land Use Data page showing all land use records with hectare values</p>
+            </div>
+            
+            <h3>Features</h3>
+            <p>On the Land Use page, you can:</p>
+            <ul>
+                <li><strong>View all land use entries:</strong> See codes, names, status and target hectares</li>
+                <li><strong>Edit values:</strong> Click on any row to modify hectare values</li>
+                <li><strong>Monitor status:</strong> Check current vs. target values</li>
+                <li><strong>Update calculations:</strong> Changes automatically trigger recalculations</li>
+            </ul>
+            
+            <h3>Step 2: Editing and Saving Land Use Data</h3>
+            <div class="step-item">
+                <strong>Click on any land use row to edit the target hectare values</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/landuse_step2.png' %}?v=3" 
+                     alt="Editing Land Use Data">
+                <p class="screenshot-caption">Figure 2: Editing land use hectare values and saving changes</p>
+            </div>
+            
+            <p>When editing land use data:</p>
+            <ul>
+                <li><strong>Click Edit:</strong> Click the edit button on any land use row to modify values</li>
+                <li><strong>Enter New Values:</strong> Input the desired target hectare value</li>
+                <li><strong>Save Changes:</strong> Click the Save button to apply your changes</li>
+                <li><strong>Auto-Recalculation:</strong> The system automatically recalculates renewable energy and energy balance after saving</li>
+            </ul>
+            
+            <div class="note-box">
+                <strong>💡 Tip:</strong>
+                Land use changes directly affect renewable energy calculations and overall energy balance. Always verify the updated values in the Renewable Energy and Bilanz sections after making changes.
+            </div>
+            
+            <h3>Step 3: Viewing Renewable Energy Overview</h3>
+            <div class="step-item">
+                <strong>Navigate to the Renewable Energy page to view comprehensive energy data</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/renewable_step4.png' %}" 
+                     alt="Renewable Energy Overview">
+                <p class="screenshot-caption">Figure 3: Renewable Energy page showing total energy generation by sector</p>
+            </div>
+            
+            <p>The Renewable Energy page provides a comprehensive overview of:</p>
+            <ul>
+                <li><strong>Total Renewable Energy:</strong> View the aggregate renewable energy generation across all sources</li>
+                <li><strong>Licht (Electricity):</strong> See electricity generation from solar panels, wind turbines, and other renewable sources</li>
+                <li><strong>Gebäudewärme (Building Heat):</strong> Monitor heat energy production for residential and commercial buildings</li>
+                <li><strong>Sector-wise Breakdown:</strong> Analyze energy distribution across different consumption sectors</li>
+                <li><strong>Status vs Target Values:</strong> Compare current generation levels against target goals for each energy type</li>
+                <li><strong>Auto-calculated Values:</strong> View real-time calculations based on land use data and energy formulas</li>
+            </ul>
+            
+            <div class="note-box">
+                <strong>💡 Important:</strong>
+                All renewable energy values are automatically calculated based on your land use data. Changes to land use hectares will instantly update the renewable energy generation figures across all sectors.
+            </div>
+            
+            <h3>Step 4: Managing Energy Consumption (Verbrauch)</h3>
+            <div class="step-item">
+                <strong>Navigate to the Verbrauch page to adjust energy consumption percentages</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/verbrauch_step5.png' %}" 
+                     alt="Verbrauch Energy Consumption">
+                <p class="screenshot-caption">Figure 4: Verbrauch page showing adjustable energy consumption percentages by sector</p>
+            </div>
+            
+            <p>The Verbrauch (Consumption) page allows you to manage energy distribution:</p>
+            <ul>
+                <li><strong>Adjust Percentages:</strong> Click on any sector to modify its energy consumption percentage share</li>
+                <li><strong>Automatic Rebalancing:</strong> When you increase one sector's percentage, other sectors automatically adjust (decrease) to maintain a total of 100%</li>
+                <li><strong>Sector Distribution:</strong> View and modify energy allocation across different consumption sectors (Industry, Transport, Households, etc.)</li>
+                <li><strong>Real-time Updates:</strong> Changes are immediately reflected in the energy balance calculations</li>
+                <li><strong>Interactive Controls:</strong> Use the arrow indicators to easily identify where adjustments can be made</li>
+            </ul>
+            
+            <div class="note-box">
+                <strong>⚠️ Important:</strong>
+                The system ensures all sector percentages always sum to 100%. When you change one percentage, the system automatically redistributes the remaining percentage across other sectors proportionally.
+            </div>
+            
+            <h3>Step 5: Accessing the Cockpit Dashboard</h3>
+            <div class="step-item">
+                <strong>Click on "Cockpit" from the sidebar to view the visual energy dashboard</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/cockpit_step6.png' %}" 
+                     alt="Cockpit Dashboard Overview">
+                <p class="screenshot-caption">Figure 5: Cockpit dashboard showing the visual overview of energy data</p>
+            </div>
+            
+            <p>The Cockpit provides a comprehensive visual dashboard:</p>
+            <ul>
+                <li><strong>Visual Overview:</strong> See all energy data presented in an easy-to-understand visual format</li>
+                <li><strong>Quick Access:</strong> Navigate to the Cockpit from the main sidebar menu</li>
+                <li><strong>Real-time Data:</strong> All charts and visualizations reflect the current state of your energy system</li>
+                <li><strong>Sector Analysis:</strong> View detailed breakdowns by energy sector and consumption type</li>
+            </ul>
+            
+            <h3>Step 6: Understanding Visual Representations</h3>
+            <div class="step-item">
+                <strong>Analyze the visual charts showing both Status and Target (Ziel) values</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/cockpit_step7.png' %}" 
+                     alt="Cockpit Visual Charts">
+                <p class="screenshot-caption">Figure 6: Visual representations showing Status vs Target (Ziel) for each sector</p>
+            </div>
+            
+            <p>The visual representations help you understand:</p>
+            <ul>
+                <li><strong>Status Values:</strong> Current actual energy generation and consumption levels for each sector</li>
+                <li><strong>Target (Ziel) Values:</strong> Planned or goal values for each energy sector</li>
+                <li><strong>Sector Comparison:</strong> Compare performance across different energy sectors at a glance</li>
+                <li><strong>Gap Analysis:</strong> Easily identify gaps between current status and target goals</li>
+                <li><strong>Interactive Charts:</strong> Visual representations update automatically when you modify land use or consumption data</li>
+            </ul>
+            
+            <div class="note-box">
+                <strong>💡 Tip:</strong>
+                Use the Cockpit's visual representations to quickly identify which sectors are meeting their targets and which need adjustment. The side-by-side comparison of Status and Ziel makes it easy to track your progress toward energy goals.
+            </div>
+            
+            <h3>Step 7: Using Balance Buttons (Bilanz)</h3>
+            <div class="step-item">
+                <strong>Navigate to Bilanz page and use the balance buttons to automatically adjust renewable energy</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/bilanz_step8.png' %}" 
+                     alt="Balance Buttons">
+                <p class="screenshot-caption">Figure 7: Bilanz page showing "Balance with Solar" and "Balance with Wind" buttons</p>
+            </div>
+            
+            <p>The Bilanz page provides powerful automated balancing tools:</p>
+            <ul>
+                <li><strong>Balance with Solar:</strong> Click this button to automatically adjust solar panel area (LU_2.1) to match energy demand with renewable generation</li>
+                <li><strong>Balance with Wind:</strong> Click this button to automatically adjust wind turbine area (LU_1.1) to achieve energy balance</li>
+                <li><strong>Automatic Calculation:</strong> The system calculates the exact land use area needed to balance supply and demand</li>
+                <li><strong>One-Click Solution:</strong> Instantly optimize your renewable energy configuration without manual adjustments</li>
+                <li><strong>Real-time Updates:</strong> Land use and renewable energy values update immediately after balancing</li>
+            </ul>
+            
+            <h3>Step 8: Viewing Final Balance Results</h3>
+            <div class="step-item">
+                <strong>Check the final balance showing total demand and total renewable energy generation</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/bilanz_step9.png' %}" 
+                     alt="Balance Results">
+                <p class="screenshot-caption">Figure 8: Final balance showing demand vs renewable energy with detailed breakdown</p>
+            </div>
+            
+            <p>Understanding the balance results:</p>
+            <ul>
+                <li><strong>Total Demand:</strong> View the complete energy demand across all consumption sectors</li>
+                <li><strong>Total Renewable Energy:</strong> See the total renewable energy generation from all sources (solar, wind, hydro, biomass)</li>
+                <li><strong>Balance Status:</strong> Instantly see if your renewable energy matches, exceeds, or falls short of demand</li>
+                <li><strong>Sector Breakdown:</strong> Detailed view of energy generation and consumption by individual sectors</li>
+                <li><strong>Gap Analysis:</strong> Identify any shortfall or surplus in your energy balance</li>
+                <li><strong>Verification:</strong> Confirm that your balance buttons successfully aligned renewable supply with energy demand</li>
+            </ul>
+            
+            <div class="note-box">
+                <strong>✅ Success Indicator:</strong>
+                When Total Renewable Energy equals or exceeds Total Demand, your system is successfully balanced! The balance buttons help you achieve this optimal state automatically by adjusting the necessary land use parameters.
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

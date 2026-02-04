@@ -1,0 +1,1043 @@
+{% load l10n %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WS1 - Annual Electricity Flow Diagram</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+
+    <div class="fullpage-container">
+        <!-- Header Bar -->
+        <div class="header-bar">
+            <div class="header-content">
+                <h1><i class="fas fa-bolt me-2"></i>WS1 - Annual Electricity Flow Diagram</h1>
+                <div class="header-actions">
+                    <a href="{% url 'simulator:main_simulation' %}" class="btn btn-sm btn-outline-light me-2">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                    </a>
+                    <button id="balance-ws-btn" class="btn btn-sm btn-warning me-2" onclick="balanceWSStorage()">
+                        <i class="fas fa-balance-scale me-1"></i>Balance WS Storage
+                    </button>
+                    <button class="btn btn-sm btn-outline-light">
+                        <i class="fas fa-download me-1"></i>Export
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- FULL PAGE HORIZONTAL DIAGRAM -->
+        <div class="diagram-wrapper">
+            <!-- Reference Box for Percentages -->
+            <div class="reference-box">
+                <div class="reference-title">📊 Efficiency & Conversion Factors</div>
+                <div class="reference-grid">
+                    <div class="ref-item">
+                        <div class="ref-label"><strong>n1:</strong> Power to Gas (H₂)</div>
+                        <div class="ref-value">65.0%</div>
+                    </div>
+                    <div class="ref-item">
+                        <div class="ref-label"><strong>n2:</strong> Base Rate</div>
+                        <div class="ref-value">100%</div>
+                    </div>
+                    <div class="ref-item">
+                        <div class="ref-label"><strong>u1:</strong> Gasspeicher Reduction</div>
+                        <div class="ref-value">160 GWh</div>
+                    </div>
+                    <div class="ref-item">
+                        <div class="ref-label"><strong>t1:</strong> Gas to Power</div>
+                        <div class="ref-value">58.5%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ws1-flow">
+
+                <!-- SECTION 1: Bio/PV/Wind/Wasser Vertical Stack -->
+                <div class="gen-stack-vertical">
+                    <div class="block yellow gen-block-small">
+                        <div class="label-badge">S</div>
+                        <strong>Bedarfs-Kraftwerke</strong><br>
+                        <strong>Biobrennstoffe</strong><br>
+                        <span class="value" id="bio">{{ bio|default:"0" }}</span>
+                    </div>
+
+                    <div class="block yellow gen-block-small">
+                        <div class="label-badge">K</div>
+                        <strong>PV</strong><br>
+                        <span class="subtitle">(fluktuierend)</span><br>
+                        <span class="value" id="pv">{{ pv|default:"0" }}</span>
+                    </div>
+
+                    <div class="block yellow gen-block-small">
+                        <div class="label-badge">J</div>
+                        <strong>Wind</strong><br>
+                        <span class="subtitle">(fluktuierend)</span><br>
+                        <span class="value" id="wind">{{ wind|default:"0" }}</span>
+                    </div>
+
+                    <div class="block yellow gen-block-small">
+                        <div class="label-badge">L</div>
+                        <strong>Laufwasser +</strong><br>
+                        <strong>Tief.-Geoth.</strong><br>
+                        <span class="subtitle">(konstant)</span><br>
+                        <span class="value" id="hydro">{{ hydro|default:"0" }}</span>
+                    </div>
+                </div>
+
+                <!-- SECTION 2: M Circle with branches -->
+                <div class="m-with-branch">
+                    <div class="circle-node">
+                        <div class="circle-label">M</div>
+                        <div class="m-values">
+                            <div class="value-upper" id="m_total">{{ m_total|default:"0" }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Vertical arrow and value going down from M -->
+                    <div class="branch-down-section-absolute">
+                        <div class="arrow-down-big"></div>
+                        <div class="branch-value">
+                            <span id="ely_branch_value">{{ ely_branch_value|default:"0" }}</span>
+                        </div>
+                        <!-- Elektrolyse Box below M -->
+                        <div class="block blue ely-nach-angebot">
+                            <strong>Elektrolyse</strong><br>
+                            <strong>Power to Gas</strong><br>
+                            <span class="subtitle">(nach Angebot)</span><br>
+                            <span class="value" id="ely_offer">{{ ely_offer|default:"0" }}</span><br>
+                            <span class="efficiency">→ 65% η → </span>
+                            <span class="h2-inline" id="h2_offer">{{ h2_offer|default:"0" }}</span>
+                        </div>
+
+                        <!-- Arrow down to Gasspeicher -->
+                        <div class="arrow-down-big" style="margin-top: 10px;"></div>
+
+                        <!-- Gasspeicher Direktverbr Box -->
+                        <div class="block blue gasspeicher-direkt">
+                            <strong>Gasspeicher</strong><br>
+                            <strong>Direktverbr.</strong><br>
+                            <span class="value" id="gasspeicher_direkt">{{ gasspeicher_direkt|default:"0" }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Arrow going right from M -->
+                <div class="arrow-section">
+                    <div class="arrow-right-big"></div>
+                </div>
+
+                <!-- N Circle with branches above and below -->
+                <div class="n-with-branches">
+                    <!-- Q (Abregelung) coming from above (9.3.4) -->
+                    <div class="branch-above-section">
+                        <div class="branch-value q-value">
+                            Q (Abregelung)<br>
+                            <span id="q_abregelung">{{ q_abregelung|default:"0" }}</span>
+                        </div>
+                        <div class="arrow-down-big"></div>
+                    </div>
+
+                    <!-- N Circle -->
+                    <div class="circle-node">
+                        <div class="circle-label">N</div>
+                        <div class="n-values">
+                            <div class="value-upper" id="n_value">{{ n_value|default:"0" }}</div>
+                        </div>
+                    </div>
+
+                    <!-- Branch going down (to Elektrolyse Stromspeicher) -->
+                    <div class="branch-below-section">
+                        <div class="arrow-down-big"></div>
+                        <div class="branch-value">
+                            <span id="n_output_branch">{{ n_output_branch|default:"0" }}</span>
+                        </div>
+                        <!-- Elektrolyse Stromspeicher Box -->
+                        <div class="block blue ely-stromspeicher">
+                            <strong>Elektrolyse</strong><br>
+                            <strong>Stromspeicher</strong><br>
+                            <span class="subtitle">(Überschuss)</span><br>
+                            <span class="value" id="ely_surplus">{{ ely_surplus|default:"0" }}</span><br>
+                            <span class="efficiency">→ 65% η → </span>
+                            <span class="h2-inline" id="h2_surplus">{{ h2_surplus|default:"0" }}</span>
+                        </div>
+
+                        <!-- Arrow down to Gasspeicher Strom -->
+                        <div class="arrow-down-big" style="margin-top: 10px;"></div>
+
+                        <!-- Gasspeicher Strom Box with T branch -->
+                        <div class="gasspeicher-with-t">
+                            <div class="block blue gasspeicher-strom">
+                                <div class="label-badge">U</div>
+                                <strong>Gasspeicher Strom</strong><br>
+                                <span class="value" id="gas_storage">{{ gas_storage|default:"0" }}</span>
+                            </div>
+
+                            <!-- Arrow right to T -->
+                            <div class="arrow-right-big" style="margin-left: 10px;"></div>
+
+                            <!-- T Box -->
+                            <div class="block pink t-box">
+                                <div class="label-badge">T</div>
+                                <strong>Gasspeicher Strom - 160</strong><br>
+                                <span class="value" id="t_value">{{ t_value|default:"0" }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Arrow going right from N -->
+                <div class="arrow-section">
+                    <div class="arrow-right-big"></div>
+                </div>
+
+                <!-- O Box (N - Q - ElektrolyseStromspeicher) -->
+                <div class="o-box-section">
+                    <div class="block blue o-box">
+                        <div class="label-badge">O</div>
+                        <strong>N - Q - Elektrolyse</strong><br>
+                        <strong>Stromspeicher</strong><br>
+                        <span class="value" id="o_value">{{ n_to_right|default:"0" }}</span>
+                    </div>
+                </div>
+
+                <!-- Arrow to final box -->
+                <div class="arrow-section">
+                    <div class="arrow-right-big"></div>
+                </div>
+
+                <!-- Final Box: Stromnetz zum Endverbrauch -->
+                <div class="final-stromnetz-section">
+                    <div class="block yellow final-block">
+                        <strong>Stromnetz zum</strong><br>
+                        <strong>Endverbrauch</strong><br>
+                        <span class="subtitle">(T + O + S)</span><br>
+                        <span class="value big" id="final_stromnetz">{{ final_stromnetz|default:"0" }}</span>
+                    </div>
+                </div>
+
+                <!-- Placeholder for future sections -->
+
+            </div>
+        </div>
+    </div>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+            overflow-x: auto;
+        }
+
+        /* ===== FULL PAGE LAYOUT ===== */
+        .fullpage-container {
+            width: 100%;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 40px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            /* Keep header/action buttons above diagram */
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 100%;
+        }
+
+        .header-content h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-actions .btn {
+            pointer-events: auto;
+            position: relative;
+            z-index: 1001;
+        }
+
+        .btn-outline-light {
+            border: 2px solid white;
+            color: white;
+            background: transparent;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-outline-light:hover {
+            background: white;
+            color: #667eea;
+        }
+
+        /* ===== DIAGRAM WRAPPER ===== */
+        .diagram-wrapper {
+            flex: 1;
+            padding: 40px;
+            overflow-x: auto;
+            overflow-y: auto;
+            background: #ffffff;
+            position: relative;
+        }
+
+        /* ============================================ */
+        /* WS1 HORIZONTAL FLOW DIAGRAM */
+        /* ============================================ */
+
+        .ws1-flow {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 30px;
+            min-width: max-content;
+            padding: 40px;
+            background: #fff;
+        }
+
+        /* ===== GENERATION BLOCKS ===== */
+        .gen-block {
+            width: 160px;
+        }
+
+        .gen-stack-vertical {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .gen-block-small {
+            width: 160px;
+            min-height: 85px;
+        }
+
+        /* ===== M WITH BRANCH ===== */
+        .m-with-branch {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            margin-top: 150px;
+            /* Center M between PV, Wind, and Wasser */
+            margin-left: 40px;
+            position: relative;
+        }
+
+        .m-with-branch::before {
+            content: "";
+            position: absolute;
+            left: -40px;
+            top: -50px;
+            width: 40px;
+            height: 2px;
+            background: #f4b942;
+            transform: rotate(-30deg);
+            transform-origin: left center;
+        }
+
+        .m-with-branch::after {
+            content: "";
+            position: absolute;
+            left: -40px;
+            top: 50px;
+            width: 40px;
+            height: 2px;
+            background: #f4b942;
+            transform: rotate(30deg);
+            transform-origin: left center;
+        }
+
+        .branch-down-section-absolute {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .n-with-branches {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0;
+            position: relative;
+        }
+
+        .branch-above-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .branch-below-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .ely-stromspeicher {
+            width: 180px;
+            min-height: 120px;
+            margin-top: 10px;
+        }
+
+        .gasspeicher-strom {
+            width: 180px;
+            min-height: 150px;
+            margin-top: 10px;
+        }
+
+        .q-value {
+            font-size: 11px;
+            font-weight: 700;
+            color: #dd9999;
+            background: #ffebee;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 2px solid #dd9999;
+            margin: 5px 0;
+            text-align: center;
+        }
+
+        .o-box-section {
+            display: flex;
+            align-items: center;
+        }
+
+        .o-box {
+            width: 180px;
+            min-height: 100px;
+        }
+
+        .gasspeicher-with-t {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 0;
+            margin-top: 10px;
+        }
+
+        .t-box {
+            width: 180px;
+            min-height: 100px;
+        }
+
+        .final-stromnetz-section {
+            display: flex;
+            align-items: center;
+        }
+
+        /* ===== REFERENCE BOX ===== */
+        .reference-box {
+            position: absolute;
+            top: -50px;
+            right: 20px;
+            background: linear-gradient(135deg, #fff8f0 0%, #ffe8d6 100%);
+            border: 2px solid #d4a658;
+            border-radius: 8px;
+            padding: 10px 14px;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+            z-index: 1000;
+            min-width: 220px;
+        }
+
+        .reference-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 8px;
+            text-align: center;
+            border-bottom: 1px solid #d4a658;
+            padding-bottom: 5px;
+        }
+
+        .reference-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .ref-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .ref-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .ref-value {
+            font-size: 11px;
+            font-weight: 800;
+            color: #d4a658;
+            background: #fff8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #d4a658;
+        }
+
+        .branch-value {
+            font-size: 12px;
+            font-weight: 700;
+            color: #000;
+            background: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 2px solid #f4b942;
+            margin: 5px 0;
+        }
+
+        .ely-nach-angebot {
+            width: 180px;
+            min-height: 120px;
+        }
+
+        .gasspeicher-direkt {
+            width: 180px;
+            min-height: 100px;
+        }
+
+        /* ===== CIRCLE VALUES ===== */
+        .m-values,
+        .n-values {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 8px;
+            gap: 3px;
+        }
+
+        /* ===== EFFICIENCY & H2 INLINE ===== */
+        .efficiency {
+            font-size: 10px;
+            font-weight: 600;
+            color: #666;
+            margin: 3px 0;
+        }
+
+        .h2-inline {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1a4d7a;
+            background: #d4e9ff;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin: 3px 0;
+        }
+
+        /* ===== ARROW SECTIONS ===== */
+        .arrow-section {
+            display: flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        /* ===== CIRCLES ===== */
+        .circle-node {
+            flex-shrink: 0;
+            min-width: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .circle-label {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 4px solid #f4b942;
+            background: #fffef7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 18px;
+            color: #333;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .p-node .circle-label {
+            border-color: #5b9bd5;
+            background: #e7f2ff;
+        }
+
+        .t-node .circle-label {
+            border-color: #70ad47;
+            background: #e9f5e0;
+        }
+
+        .value-upper {
+            font-size: 14px;
+            font-weight: 700;
+            color: #000;
+            white-space: nowrap;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .value-lower {
+            font-size: 13px;
+            font-weight: 600;
+            color: #666;
+            white-space: nowrap;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        /* ===== ARROWS ===== */
+        .arrow-right-big {
+            width: 60px;
+            height: 4px;
+            background: #f4b942;
+            position: relative;
+        }
+
+        .arrow-right-big::after {
+            content: "";
+            position: absolute;
+            right: -8px;
+            top: -5px;
+            width: 0;
+            height: 0;
+            border-top: 7px solid transparent;
+            border-bottom: 7px solid transparent;
+            border-left: 12px solid #f4b942;
+        }
+
+        .arrow-down-big {
+            width: 4px;
+            height: 50px;
+            background: #f4b942;
+            position: relative;
+        }
+
+        .arrow-down-big::after {
+            content: "";
+            position: absolute;
+            bottom: -8px;
+            left: -5px;
+            width: 0;
+            height: 0;
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+            border-top: 12px solid #f4b942;
+        }
+
+        .arrow-up-big {
+            width: 4px;
+            height: 70px;
+            background: #70ad47;
+            position: relative;
+        }
+
+        .arrow-up-big::before {
+            content: "";
+            position: absolute;
+            top: -8px;
+            left: -5px;
+            width: 0;
+            height: 0;
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+            border-bottom: 12px solid #70ad47;
+        }
+
+        .arrow-right-thin {
+            width: 40px;
+            height: 3px;
+            background: #8aa8c7;
+            position: relative;
+        }
+
+        .arrow-right-thin::after {
+            content: "";
+            position: absolute;
+            right: -6px;
+            top: -4px;
+            width: 0;
+            height: 0;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+            border-left: 8px solid #8aa8c7;
+        }
+
+        .arrow-down-thin {
+            width: 3px;
+            height: 35px;
+            background: #8aa8c7;
+            position: relative;
+        }
+
+        .arrow-down-thin::after {
+            content: "";
+            position: absolute;
+            bottom: -6px;
+            left: -4px;
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 8px solid #8aa8c7;
+        }
+
+        /* ===== BLOCKS ===== */
+        .block {
+            width: 100%;
+            min-height: 95px;
+            padding: 14px 16px;
+            border-radius: 6px;
+            border: 3px solid #999;
+            font-weight: 600;
+            text-align: center;
+            font-size: 13px;
+            line-height: 1.5;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s;
+        }
+
+        .block:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+        }
+
+        .block.yellow {
+            background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
+            border-color: #d4a658;
+        }
+
+        .block.blue {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-color: #5b9bd5;
+        }
+
+        .block.pink {
+            background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+            border-color: #dd9999;
+        }
+
+        .block.storage {
+            min-height: 130px;
+            width: 180px;
+        }
+
+        .final-block {
+            min-height: 150px;
+            width: 200px;
+            padding: 25px;
+            font-size: 15px;
+        }
+
+        .label-badge {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            color: #555;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .value {
+            font-size: 16px;
+            font-weight: 800;
+            color: #000;
+            margin-top: 6px;
+        }
+
+        .value.big {
+            font-size: 32px;
+            font-weight: 900;
+            color: #1a1a1a;
+            margin-top: 12px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .subtitle {
+            font-size: 11px;
+            font-style: italic;
+            color: #777;
+        }
+
+        .hours {
+            font-size: 10px;
+            color: #999;
+            margin-top: 4px;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 2400px) {
+            .ws1-flow {
+                gap: 15px;
+            }
+
+            .gen-block {
+                width: 140px;
+            }
+
+            .arrow-right-big {
+                width: 40px;
+            }
+        }
+
+        @media (max-width: 1800px) {
+            .ws1-flow {
+                gap: 10px;
+            }
+
+            .gen-block {
+                width: 130px;
+            }
+
+            .block {
+                font-size: 11px;
+                min-height: 80px;
+            }
+        }
+
+        @media (max-width: 1400px) {
+            .diagram-wrapper {
+                padding: 20px;
+            }
+
+            .ws1-flow {
+                padding: 20px;
+                gap: 8px;
+            }
+
+            .gen-block {
+                width: 110px;
+            }
+
+            .arrow-right-big {
+                width: 25px;
+            }
+        }
+    </style>
+
+
+
+    <script>
+        // WS1 Annual Electricity Flow - Data Population from Django Context
+        document.addEventListener('DOMContentLoaded', function () {
+            // GENERATION SOURCES (S, K, J, L)
+            const bio = {{ bio|default:0|unlocalize }};
+        const pv = {{ pv|default:0|unlocalize }};
+        const wind = {{ wind|default:0|unlocalize }};
+        const hydro = {{ hydro|default:0|unlocalize }};
+
+        console.log('=== WS DIAGRAM VALUES ===');
+        console.log('Sources: bio=' + bio + ', pv=' + pv + ', wind=' + wind + ', hydro=' + hydro);
+
+        // Core values
+        const m_total = {{ m_total|default:0|unlocalize }};
+        const ely_branch_value = {{ ely_branch_value|default:0|unlocalize }};
+        const m_remaining = m_total - ely_branch_value;
+        const n_input_branch = {{ n_input_branch|default:0|unlocalize }};
+        const n_output_branch = {{ n_output_branch|default:0|unlocalize }};
+        const q_abregelung = {{ q_abregelung|default:0|unlocalize }};
+        const n_value = {{ n_value|default:0|unlocalize }};
+        const o_value = {{ n_to_right|default:0|unlocalize }};
+        const gasspeicher_direkt = {{ gasspeicher_direkt|default:0|unlocalize }};
+        const n_input = {{ n_input|default:0|unlocalize }};
+        const n_output = {{ n_output|default:0|unlocalize }};
+        const ely_offer = {{ ely_offer|default:0|unlocalize }};
+        const ely_surplus = {{ ely_surplus|default:0|unlocalize }};
+        const h2_offer = {{ h2_offer|default:0|unlocalize }};
+        const h2_surplus = {{ h2_surplus|default:0|unlocalize }};
+        const gas_storage = {{ gas_storage|default:0|unlocalize }};
+        const t_value = {{ t_value|default:0|unlocalize }};
+        const final_stromnetz = {{ final_stromnetz|default:0|unlocalize }};
+        const h2_to_reconv = {{ h2_to_reconv|default:0|unlocalize }};
+        const reconversion = {{ reconversion|default:0|unlocalize }};
+        const final_consumption = {{ final_consumption|default:0|unlocalize }};
+
+        function formatNumber(num) {
+            return Number(num || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        // Populate diagram values
+        const setText = (id, val, suffix = "") => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = formatNumber(val) + suffix;
+        };
+
+        setText("bio", bio);
+        setText("pv", pv);
+        setText("wind", wind);
+        setText("hydro", hydro);
+        setText("m_total", m_total);
+        setText("ely_branch_value", ely_branch_value);
+        setText("n_value", n_value);
+        setText("n_output_branch", n_output_branch);
+        setText("q_abregelung", q_abregelung);
+        setText("o_value", o_value);
+        setText("gasspeicher_direkt", gasspeicher_direkt);
+        setText("ely_offer", ely_offer);
+        setText("ely_surplus", ely_surplus);
+        setText("h2_offer", h2_offer, " H₂");
+        setText("h2_surplus", h2_surplus, " H₂");
+        setText("gas_storage", gas_storage);
+        setText("t_value", t_value);
+        setText("final_stromnetz", final_stromnetz);
+
+        // Tooltips
+        const tooltips = {
+            'bio': 'Controllable biogas/biomass power plants',
+            'pv': 'Solar PV - fluctuates with sunlight',
+            'wind': 'Wind generation - fluctuates with wind',
+            'hydro': 'Run-of-river hydro + deep geothermal - constant',
+            'm_total': 'Total theoretical generation from all sources',
+            'm_usable': 'Usable generation after curtailment',
+            'abregelung': 'Curtailed renewable energy - wasted excess',
+            'n_input': 'Direct renewable electricity entering grid',
+            'n_output': 'Total electricity to final consumers',
+            'ely_offer': 'Scheduled hydrogen production',
+            'ely_surplus': 'Hydrogen from excess electricity',
+            'gas_storage': 'Total hydrogen stored',
+            'reconversion': 'Electricity from hydrogen during shortages',
+            'final_consumption': 'Annual electricity consumption'
+        };
+        Object.keys(tooltips).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.title = tooltips[id];
+                el.style.cursor = 'help';
+            }
+        });
+
+});
+
+        // Balance WS Storage - GoalSeek function
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        async function balanceWSStorage() {
+            const btn = document.getElementById('balance-ws-btn');
+            const originalText = btn.innerHTML;
+
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Balancing...';
+
+            try {
+                const response = await fetch("{% url 'simulator:balance_ws_storage' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+
+                console.log('Response status:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Server error:', errorText);
+                    throw new Error('Server returned ' + response.status + ': ' + errorText.substring(0, 200));
+                }
+
+                const data = await response.json();
+                console.log('Balance response data:', data);
+
+                if (data.status === 'balanced' || data.status === 'converged_with_residual') {
+                    // Show success message
+                    btn.innerHTML = '<i class="fas fa-check me-1"></i>Balanced!';
+                    btn.classList.remove('btn-warning');
+                    btn.classList.add('btn-success');
+
+                    console.log('Balance WS Storage completed:', data);
+                    console.log('Iterations:', data.iterations);
+                    console.log('Final stromverbr:', data.final_stromverbr);
+                    console.log('Ladezustand Netto 366:', data.ladezustand_netto_row_366);
+
+                    alert('Balance completed!\nIterations: ' + data.iterations + '\nLadezustand Netto 366: ' + (data.ladezustand_netto_row_366 || 0).toFixed(2));
+
+                    // Reload page after short delay to show updated values
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    throw new Error(data.message || 'Balance failed with status: ' + data.status);
+                }
+            } catch (error) {
+                console.error('Balance WS Storage failed:', error);
+                btn.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i>Failed';
+                btn.classList.remove('btn-warning');
+                btn.classList.add('btn-danger');
+
+                alert('Balance WS Storage failed: ' + error.message);
+
+                // Reset button after 3 seconds
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('btn-danger');
+                    btn.classList.add('btn-warning');
+                    btn.disabled = false;
+                }, 3000);
+            }
+        }
+    </script>
+
+</body>
+
+</html>

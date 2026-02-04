@@ -1,0 +1,620 @@
+{% extends 'simulator/base.html' %}
+{% load calculation_filters %}
+
+{% block title %}Renewable Energy Data - Solar Overview{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar Navigation -->
+        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+            <div class="position-sticky pt-3">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Simulation Modules</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
+                            <i class="fas fa-tachometer-alt me-2"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
+                            <i class="fas fa-map me-2"></i>
+                            Land Use Data
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{% url 'simulator:renewable_list' %}">
+                            <i class="fas fa-solar-panel me-2"></i>
+                            Renewable Energy
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Verbrauch
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:cockpit' %}">
+                            <i class="fas fa-cogs me-2"></i>
+                            Cockpit
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
+                            <i class="fas fa-bolt me-2"></i>
+                            Annual Electricity
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:bilanz' %}">
+                            <i class="fas fa-balance-scale me-2"></i>
+                            Bilanz
+                        </a>
+                    </li>
+                    {% comment %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:usecase_diagram' %}">
+                            <i class="fas fa-project-diagram me-2"></i>
+                            Use Case Diagram
+                        </a>
+                    </li>
+                    {% endcomment %}
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+            <div
+                class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                <h1 class="h2">Renewable Energy Data Overview</h1>
+                <div class="btn-toolbar mb-2 mb-md-0">
+                    <div class="btn-group me-2">
+                        <button id="run-unified-recalc-btn" type="button" class="btn btn-sm btn-success"
+                            onclick="runUnifiedRecalculation()">
+                            <i class="fas fa-sync-alt me-1"></i>🔄 Recalculate + Balance
+                        </button>
+                    </div>
+                    <div class="btn-group me-2">
+                        <button id="run-recalc-btn" type="button" class="btn btn-sm btn-outline-primary"
+                            onclick="runFullRecalcRenewables()">
+                            <i class="fas fa-leaf me-1"></i>Renewables Only
+                        </button>
+                    </div>
+                    <div class="btn-group me-2">
+                        <button id="run-ws-recalc-btn" type="button" class="btn btn-sm btn-outline-success"
+                            onclick="runWSRecalculation()">
+                            <i class="fas fa-database me-1"></i>WS Data Only
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- Hierarchical Solar Energy Data -->
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        🌞 Renewable Energy Hierarchy
+                        <span class="badge bg-secondary ms-2">{{ total_count }} records</span>
+                    </h5>
+                    <button id="toggleDetailsBtn" class="btn btn-sm btn-outline-primary"
+                        onclick="toggleDetailedSections()">
+                        <i class="fas fa-eye me-1"></i>
+                        <span id="toggleText">Show Full Table (Sections 1-9)</span>
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0 hierarchy-table">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 80px;">Code</th>
+                                    <th style="width: 250px;">Parameter Hierarchy</th>
+                                    <th class="text-center" style="width: 60px;">Unit</th>
+                                    <th class="text-center" style="width: 100px;">Status Value</th>
+                                    <th class="text-center" style="width: 100px;">Target Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in hierarchical_data %}
+                                <tr
+                                    class="hierarchy-level-{{ item.hierarchy_level }} {% if item.formula %}calculated-row{% endif %} {% if item.code|slice:':2' != '10' %}detailed-section{% endif %}">
+                                    <td>
+                                        <span
+                                            class="badge bg-{% if item.hierarchy_level == 1 %}dark{% elif item.hierarchy_level == 2 %}secondary{% else %}light text-dark{% endif %}">
+                                            {{ item.code }}
+                                        </span>
+                                    </td>
+                                    <td class="hierarchy-cell">
+                                        <div class="hierarchy-indent-{{ item.hierarchy_level }}">
+                                            {% if item.code == '10.1' %}
+                                            <span
+                                                style="color:black;font-weight:500;font-style:normal">{{ item.name }}</span>
+                                            {% elif item.code == '10.3' or item.code == '10.4' or item.code == '10.5' or                                             item.code == '10.6' or item.code == '10.7' %}
+                                            <span
+                                                style="background-color:#d4e6f1;padding:3px 8px;border-radius:3px;color:black;font-weight:600">{{ item.name }}</span>
+                                            {% else %}
+                                            <span style="color:black">{{ item.name }}</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+
+                                    <td class="text-center">
+                                        {% if item.unit %}
+                                        <code class="unit-badge">{{ item.unit }}</code>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.display_value is not None %}
+                                        <span>{{ item.display_value|floatformat:3 }}</span>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center">
+                                        {% if item.display_target is not None %}
+                                        <span>{{ item.display_target|floatformat:3 }}</span>
+                                        {% else %}
+                                        <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional Info -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="alert alert-secondary">
+                        <h6 class="alert-heading">🌱 Renewable Energy Information</h6>
+                        <p class="mb-0">
+                            This data shows renewable energy parameters for Germany, focusing on solar energy
+                            installations.
+                            Values include land use for solar panels (Dachflächen/Freiflächen), energy production rates,
+                            and efficiency calculations. Formulas automatically calculate derived values based on your
+                            inputs.
+                        </p>
+                    </div>
+                </div>
+            </div>
+    </div>
+</div>
+
+<style>
+    .hierarchy-table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    /* Hierarchy indentation */
+    .hierarchy-indent-1 {
+        padding-left: 0px;
+        font-size: 1.1em;
+        font-weight: bold;
+    }
+
+    .hierarchy-indent-2 {
+        padding-left: 20px;
+        font-size: 1.05em;
+        font-weight: 600;
+    }
+
+    .hierarchy-indent-3 {
+        padding-left: 40px;
+        font-size: 1em;
+        font-weight: 500;
+    }
+
+    .hierarchy-indent-4 {
+        padding-left: 60px;
+        font-size: 0.95em;
+    }
+
+    .hierarchy-indent-5 {
+        padding-left: 80px;
+        font-size: 0.9em;
+        font-style: italic;
+    }
+
+    /* Row styling based on hierarchy level */
+    .hierarchy-level-1 {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+    }
+
+    .hierarchy-level-2 {
+        background-color: #d1ecf1;
+        border-left: 4px solid #17a2b8;
+    }
+
+    .hierarchy-level-3 {
+        background-color: #d4edda;
+        border-left: 4px solid #28a745;
+    }
+
+    .hierarchy-level-4 {
+        background-color: #f8f9fa;
+        border-left: 4px solid #6c757d;
+    }
+
+    .hierarchy-level-5 {
+        background-color: #e2e3e5;
+        border-left: 4px solid #495057;
+    }
+
+    .calculated-row {
+        background-color: #e7f3ff !important;
+        border-left-color: #007bff !important;
+    }
+
+    .calculated-value {
+        background-color: #28a745 !important;
+        animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+        0% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.7;
+        }
+
+        100% {
+            opacity: 1;
+        }
+    }
+
+    .formula-display {
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 0.8em;
+        background-color: #f8f9fa;
+        padding: 2px 6px;
+        border-radius: 3px;
+        border: 1px solid #dee2e6;
+    }
+
+    .unit-badge {
+        background-color: #e9ecef;
+        color: #495057;
+        font-size: 0.8em;
+        padding: 2px 6px;
+        border-radius: 3px;
+    }
+
+    .status-value {
+        font-size: 0.85em;
+    }
+
+    .target-value {
+        font-size: 0.85em;
+    }
+
+    .calculation-display {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        min-height: 100px;
+    }
+
+    .renewable-input:focus {
+        border-color: #28a745;
+        box-shadow: 0 0 0 0.2rem rgba(40, 167, 69, 0.25);
+    }
+
+    .hierarchy-cell {
+        min-width: 300px;
+    }
+
+    /* Hover effects */
+    .hierarchy-table tbody tr:hover {
+        background-color: rgba(0, 123, 255, 0.1) !important;
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const inputs = document.querySelectorAll('.renewable-input');
+
+        // Store formulas and their dependencies
+        const formulas = {
+            {% for item in hierarchical_data %} {% if item.formula %} '{{ item.code }}': '{{ item.formula }}', {% endif %}{% endfor %}
+        };
+
+    function calculateFormulas() {
+        const values = {};
+
+        // Get all input values
+        inputs.forEach(input => {
+            const code = input.dataset.code;
+            const value = parseFloat(input.value) || 0;
+            values[code] = value;
+        });
+
+        // Add existing status/target values from the template
+        {% for item in hierarchical_data %}
+        {% if item.display_value %}
+        values['{{ item.code }}'] = {{ item.display_value }};
+        {% endif %}
+        {% endfor %}
+
+    // Calculate formula results
+    const results = {};
+    Object.keys(formulas).forEach(code => {
+        try {
+            const formula = formulas[code];
+            // Simple formula evaluation (replace codes with values)
+            let expression = formula;
+            Object.keys(values).forEach(valueCode => {
+                const regex = new RegExp('\\b' + valueCode + '\\b', 'g');
+                expression = expression.replace(regex, values[valueCode] || 0);
+            });
+
+            // Evaluate the expression safely (only basic math)
+            if (/^[0-9+\-*/(). ]+$/.test(expression)) {
+                results[code] = eval(expression);
+            }
+        } catch (e) {
+            console.warn('Formula calculation error for code ' + code + ':', e);
+        }
+    });
+    }
+
+    // Add event listeners
+    inputs.forEach(input => {
+        input.addEventListener('input', calculateFormulas);
+    });
+
+    // Initial calculation
+    calculateFormulas();
+});
+</script>
+
+</main>
+</div>
+</div>
+
+<style>
+    .sidebar {
+        position: fixed;
+        top: 56px;
+        bottom: 0;
+        left: 0;
+        z-index: 100;
+        padding: 48px 0 0;
+        box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+    }
+
+    .sidebar .nav-link {
+        font-weight: 500;
+        color: #333;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin: 0.125rem 0.5rem;
+    }
+
+    .sidebar .nav-link:hover {
+        background-color: rgba(0, 0, 0, .075);
+    }
+
+    .sidebar .nav-link.active {
+        color: #0d6efd;
+        background-color: rgba(13, 110, 253, .1);
+    }
+
+    .sidebar .sidebar-heading {
+        font-size: .75rem;
+        text-transform: uppercase;
+    }
+
+    main {
+        margin-left: 0;
+    }
+
+    @media (min-width: 768px) {
+        main {
+            margin-left: 16.66667%;
+        }
+    }
+
+    @media (min-width: 992px) {
+        main {
+            margin-left: 16.66667%;
+        }
+    }
+
+    .detailed-section {
+        display: none;
+    }
+
+    .detailed-section.show {
+        display: table-row;
+    }
+</style>
+
+<script>
+    const CSRF_TOKEN = "{{ csrf_token }}";
+
+    function getCsrfToken() {
+        if (CSRF_TOKEN && CSRF_TOKEN.length > 10) {
+            return CSRF_TOKEN;
+        }
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        if (match) return match[1];
+        const inputToken = document.querySelector('input[name=csrfmiddlewaretoken]');
+        return inputToken ? inputToken.value : '';
+    }
+
+    async function runUnifiedRecalculation() {
+        const btn = document.getElementById('run-unified-recalc-btn');
+        if (!btn) return;
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalc + Balance...';
+
+        try {
+            // Call the UNIFIED recalculation API with auto-balance
+            const response = await fetch("{% url 'simulator:unified_recalc' %}", {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    balance_after: true,      // Auto-balance after recalc
+                    ws_tolerance: 10.0,       // WS balance tolerance (GWh)
+                    energy_tolerance: 1.0,    // Energy balance tolerance (GWh)
+                    max_balance_cycles: 2     // Max iterations (reduced for speed)
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Unified Recalculation completed:', data);
+
+            // Build success message
+            let msg = `✅ Unified Recalculation Complete!\n\n`;
+            msg += `Input Renewables: ${data.input_renewables}\n`;
+            msg += `WS Entries: ${data.ws_updated}\n`;
+            msg += `Fixed Renewables (9.3.1/9.3.4) applied\n\n`;
+
+            if (data.is_balanced) {
+                msg += `✅ BALANCED!\n`;
+                if (data.balance) {
+                    msg += `   Final Gap: ${data.balance.final_gap?.toFixed(2) || 0} GWh\n`;
+                    msg += `   Iterations: ${data.balance.iterations || 0}\n`;
+                }
+            } else {
+                msg += `⚠️ Balance incomplete\n`;
+                if (data.balance) {
+                    msg += `   Final Gap: ${data.balance.final_gap?.toFixed(2) || 'N/A'} GWh\n`;
+                    msg += `   Message: ${data.balance.message || ''}\n`;
+                }
+            }
+
+            msg += `\nDuration: ${data.duration_ms}ms`;
+            alert(msg);
+
+            // Reload page to show updated values
+            window.location.reload();
+        } catch (err) {
+            console.error('Unified Recalc failed', err);
+            alert('Unified Recalculation failed: ' + err.message + '. Please try again.');
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+
+    async function runFullRecalcRenewables() {
+        const btn = document.getElementById('run-recalc-btn');
+        if (!btn) return;
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalculating...';
+
+        try {
+            // Call the full recalculation API to recalculate all values with fresh data
+            const response = await fetch("{% url 'simulator:run_full_recalc' %}", {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Recalculation completed:', data);
+
+            // Reload page with run_id to show updated values
+            if (data.run_id) {
+                window.location.href = "{% url 'simulator:renewable_list' %}?run_id=" + data.run_id;
+            } else {
+                window.location.reload();
+            }
+        } catch (err) {
+            console.error('Recalc failed', err);
+            alert('Recalculation failed: ' + err.message + '. Please try again.');
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+
+    async function runWSRecalculation() {
+        const btn = document.getElementById('run-ws-recalc-btn');
+        if (!btn) return;
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalculating WS...';
+
+        try {
+            // Call the WS formula recalculation API
+            const response = await fetch("{% url 'simulator:recalc_ws_formulas' %}", {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('WS Recalculation completed:', data);
+
+            // Show success message
+            alert(data.message || 'WS Data recalculation complete!');
+
+            // Reload page to show updated values
+            window.location.reload();
+        } catch (err) {
+            console.error('WS Recalc failed', err);
+            alert('WS Recalculation failed: ' + err.message + '. Please try again.');
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+
+    function toggleDetailedSections() {
+        const detailedSections = document.querySelectorAll('.detailed-section');
+        const toggleBtn = document.getElementById('toggleDetailsBtn');
+
+        detailedSections.forEach(section => {
+            section.classList.toggle('show');
+        });
+
+        // Update button text and icon
+        if (detailedSections[0].classList.contains('show')) {
+            toggleBtn.innerHTML = '<i class="fas fa-minus-circle"></i> Hide Details';
+        } else {
+            toggleBtn.innerHTML = '<i class="fas fa-plus-circle"></i> Show Details';
+        }
+    }
+</script>
+
+{% endblock %}

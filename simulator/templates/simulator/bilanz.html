@@ -1,0 +1,833 @@
+{% extends 'simulator/base.html' %}
+{% load bilanz_filters %}
+
+{% block title %}Bilanz Endenergie - Energy Balance Sheet{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Bilanz table styling to match Excel - v2 */
+    .bilanz-table {
+        font-size: 14px;
+    }
+
+    .bilanz-table th {
+        background-color: #e8f4f8;
+        font-weight: 600;
+        border: 1px solid #dee2e6;
+    }
+
+    .bilanz-table td {
+        border: 1px solid #dee2e6;
+        padding: 8px 12px;
+    }
+
+    /* Main category rows - bold with colored background */
+    .category-strom {
+        background-color: #fff3cd !important;
+        font-weight: 600;
+    }
+
+    .category-brennstoffe {
+        background-color: #cfe2ff !important;
+        font-weight: 600;
+    }
+
+    .category-waerme {
+        background-color: #ffe0b2 !important;
+        font-weight: 600;
+    }
+
+    .category-gesamt {
+        background-color: #d1e7dd !important;
+        font-weight: 700;
+        font-size: 15px;
+    }
+
+    /* Sector column colors - MORE VISIBLE for testing */
+    .table-secondary {
+        background-color: #e0e0e0 !important;
+        border-left: 5px solid #666666 !important;
+    }
+
+    .table-warning {
+        background-color: #ffe0b2 !important;
+        border-left: 5px solid #ff6f00 !important;
+    }
+
+    .table-info {
+        background-color: #bbdefb !important;
+        border-left: 5px solid #1976d2 !important;
+    }
+
+    .table-success {
+        background-color: #c8e6c9 !important;
+        border-left: 5px solid #388e3c !important;
+    }
+
+    .table-danger {
+        background-color: #ffcdd2 !important;
+        border-left: 5px solid #d32f2f !important;
+        font-weight: 600;
+    }
+
+    /* Sub-row indentation levels */
+    .indent-1 {
+        padding-left: 2rem !important;
+    }
+
+    .indent-2 {
+        padding-left: 3rem !important;
+        font-style: italic;
+        color: #666;
+    }
+
+    /* Total column highlighting */
+    .total-column {
+        background-color: #f0f8ff;
+        font-weight: 600;
+    }
+
+    /* Number formatting */
+    .text-end {
+        text-align: right !important;
+        font-family: 'Courier New', monospace;
+    }
+
+    /* Empty cells (zeros) */
+    td:empty::after {
+        content: "";
+    }
+
+    /* Renewable/Fossil indicators */
+    .renewable-indicator {
+        color: #28a745;
+    }
+
+    .fossil-indicator {
+        color: #dc3545;
+    }
+
+    /* Spacer rows */
+    .spacer-row {
+        height: 8px !important;
+        background-color: #f8f9fa;
+    }
+
+    .spacer-row td {
+        padding: 0 !important;
+        border: none !important;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function getCsrfToken() {
+        const match = document.cookie.match(/csrftoken=([^;]+)/);
+        if (match) return match[1];
+        const inputToken = document.querySelector('input[name=csrfmiddlewaretoken]');
+        return inputToken ? inputToken.value : '';
+    }
+
+    async function runBalance() {
+        const btn = document.getElementById('balance-btn');
+        const driver = document.getElementById('balance-driver').value;
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Balancing...';
+
+        try {
+            const response = await fetch("{% url 'simulator:balance_energy' %}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCsrfToken()
+                },
+                body: JSON.stringify({
+                    driver: driver,
+                    tolerance: 1.0
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // Save land use change to localStorage for Recent Changes panel
+            if (data.summary && data.summary.landuse_change) {
+                saveLandUseChangeToStorage(data.summary.landuse_change);
+            }
+            
+            alert('Energy Balance Complete!\n\n' +
+                'Demand: ' + data.summary.demand.toFixed(0) + ' GWh\n' +
+                'Renewable: ' + data.summary.renewable.toFixed(0) + ' GWh\n' +
+                'Final Gap: ' + data.summary.final_gap.toFixed(2) + ' GWh\n' +
+                'Final Ha: ' + data.summary.final_ha.toFixed(2));
+            window.location.reload();
+        } catch (err) {
+            console.error('Balance failed', err);
+            alert('Balance failed. Please try again.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+
+    async function runBalanceLU6() {
+        const btn = document.getElementById('balance-lu6-btn');
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Balancing LU_6...';
+
+        try {
+            const response = await fetch("{% url 'simulator:balance_energy_lu6' %}", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCsrfToken()
+                },
+                body: JSON.stringify({
+                    tolerance: 1.0
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            
+            // Save land use change to localStorage for Recent Changes panel
+            if (data.summary && data.summary.landuse_change) {
+                saveLandUseChangeToStorage(data.summary.landuse_change);
+            }
+            
+            alert('Energy Balance (LU_6) Complete!\n\n' +
+                'Driver: LU_6 (Windparkfläche)\n' +
+                'Demand: ' + data.summary.demand.toFixed(0) + ' GWh\n' +
+                'Renewable: ' + data.summary.renewable.toFixed(0) + ' GWh\n' +
+                'Final Gap: ' + data.summary.final_gap.toFixed(2) + ' GWh\n' +
+                'Final Ha: ' + data.summary.final_ha.toFixed(2));
+            window.location.reload();
+        } catch (err) {
+            console.error('Balance failed', err);
+            alert('Balance failed. Please try again.');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+
+    async function runFullBalance() {
+        const btn = document.getElementById('full-balance-btn');
+        const driver = document.getElementById('balance-driver').value;
+        const original = btn.innerHTML;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Balancing all...';
+
+        try {
+            const response = await fetch("/api/balance-all/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCsrfToken()
+                },
+                body: JSON.stringify({
+                    driver: driver,
+                    tolerance: 1.0,
+                    ws_tolerance: 10.0,   // FIXED: was 1e-3 which is too tight
+                    max_cycles: 12
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                const message = data && data.message ? data.message : `HTTP ${response.status}`;
+                throw new Error(message);
+            }
+
+            console.log('Full balance cycles', data.cycles);
+
+            const status = data.overall_status || data.status;
+            if (status === "balanced" || status === "ok") {
+                alert(`✅ Balance Complete!\n\nFinal Gap: ${data.gap_after_ws?.toFixed(2) || 0} GWh\nIterations: ${data.iterations || 0}`);
+            } else {
+                alert((data.message || "Partial balance") + " (status: " + status + ")");
+            }
+
+            window.location.reload();
+        } catch (err) {
+            console.error('Full balance failed', err);
+            alert('Full balance failed: ' + (err.message || 'Please try again.'));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+    }
+    
+    // Helper function to save land use changes to localStorage
+    function saveLandUseChangeToStorage(change) {
+        try {
+            console.log('💾 Saving automatic land use change to localStorage:', change);
+            
+            // Load existing changes
+            let changesHistory = [];
+            const saved = localStorage.getItem('landuse_changes_history');
+            if (saved) {
+                changesHistory = JSON.parse(saved);
+            }
+            
+            // Add timestamp
+            change.timestamp = new Date().toLocaleTimeString();
+            
+            // Add to beginning of array
+            changesHistory.unshift(change);
+            
+            // Keep only last 50 changes
+            if (changesHistory.length > 50) {
+                changesHistory = changesHistory.slice(0, 50);
+            }
+            
+            // Save back to localStorage
+            localStorage.setItem('landuse_changes_history', JSON.stringify(changesHistory));
+            
+            // Also save to sessionStorage as backup
+            sessionStorage.setItem('landuse_changes_history_backup', JSON.stringify(changesHistory));
+            
+            console.log('✅ Automatic change saved to storage');
+        } catch (e) {
+            console.error('❌ Error saving automatic change:', e);
+        }
+    }
+</script>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar Navigation -->
+        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+            <div class="position-sticky pt-3">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Simulation Modules</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:user_manual' %}">
+                            <i class="fas fa-book me-2"></i>User Manual
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
+                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
+                            <i class="fas fa-map me-2"></i>Land Use Data
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:renewable_list' %}">
+                            <i class="fas fa-solar-panel me-2"></i>Renewable Energy
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
+                            <i class="fas fa-chart-line me-2"></i>Verbrauch (KLIK + Gebäudewärme)
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:cockpit' %}">
+                            <i class="fas fa-cogs me-2"></i>Cockpit
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
+                            <i class="fas fa-bolt me-2"></i>Annual Electricity
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:smard_solar_wind' %}">
+                            <i class="fas fa-chart-area me-2"></i>SMARD Solar & Wind
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{% url 'simulator:bilanz' %}">
+                            <i class="fas fa-balance-scale me-2"></i>Bilanz
+                        </a>
+                    </li>
+                    {% comment %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:usecase_diagram' %}">
+                            <i class="fas fa-project-diagram me-2"></i>Use Case Diagram
+                        </a>
+                    </li>
+                    {% endcomment %}
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+            <div
+                class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h1 class="h2 mb-0">
+                        <i class="fas fa-balance-scale me-2 text-primary"></i>
+                        Bilanz Endenergie
+                    </h1>
+                    <span class="badge bg-primary fs-6">Aktiva vs. Passiva</span>
+                    <span class="badge bg-info text-dark">Uses latest recalculation values</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+
+                    <div class="btn-group">
+                        <select id="balance-driver" class="form-select form-select-sm">
+                            <option value="solar">Balance via Solar (LU_2.1)</option>
+                            <option value="wind">Balance via Wind (LU_1.1)</option>
+                        </select>
+                        <button id="balance-btn" class="btn btn-sm btn-warning" onclick="runBalance()">
+                            <i class="fas fa-solar-panel me-1"></i>Balance with Solar
+                        </button>
+                        <button id="balance-lu6-btn" class="btn btn-sm btn-primary" onclick="runBalanceLU6()">
+                            <i class="fas fa-wind me-1"></i>Balance with Wind
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Box -->
+            <div class="alert alert-info mb-4">
+                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Bilanz Overview</h5>
+                <p class="mb-0">
+                    This balance sheet compares energy supply (Aktiva: Renewable + Fossil) with energy demand (Passiva:
+                    Verbrauch).
+                    <br><strong>Formula:</strong> Erneuerbar + Fossil (Aktiva) = Verbrauch (Passiva)
+                </p>
+            </div>
+
+            <!-- Tab Navigation -->
+            <ul class="nav nav-tabs mb-4" id="bilanzTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="status-tab" data-bs-toggle="tab" data-bs-target="#status"
+                        type="button" role="tab" aria-controls="status" aria-selected="true">
+                        <i class="fas fa-camera me-1"></i>Status Bilanz
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="ziel-tab" data-bs-toggle="tab" data-bs-target="#ziel" type="button"
+                        role="tab" aria-controls="ziel" aria-selected="false">
+                        <i class="fas fa-bullseye me-1"></i>Ziel Bilanz
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content" id="bilanzTabContent">
+
+                <!-- STATUS TAB -->
+                <div class="tab-pane fade show active" id="status" role="tabpanel" aria-labelledby="status-tab">
+                    <h3 class="mb-3 text-primary">Status Bilanz Endenergie (GWh/a)</h3>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered bilanz-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30%;">Hauptkategorie / Anwendung</th>
+                                    <th class="text-center" style="width: 14%;">Kraft/Licht<br>IKT/Kälte</th>
+                                    <th class="text-center" style="width: 14%;">Gebäudewärme</th>
+                                    <th class="text-center" style="width: 14%;">Prozesswärme</th>
+                                    <th class="text-center" style="width: 14%;">Mobile<br>Anwendungen</th>
+                                    <th class="text-center" style="width: 14%;"><strong>Insgesamt</strong></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- SECTION 1: VERBRAUCH STROM -->
+                                <!-- SECTION 1: VERBRAUCH STROM -->
+                                <tr class="category-strom">
+                                    <td style="background-color: #f8d7da;"><strong>Verbrauch Strom</strong></td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.status.mobile|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;"><strong>{{ verbrauch_strom.status.gesamt|format_energy }}</strong></td>
+                                </tr>
+
+                                <!-- erneuerbar (separate row) -->
+                                <tr>
+                                    <td class="indent-1" style="background-color: #f8d7da;">erneuerbar</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_renewable.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_renewable.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_renewable.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_renewable.status.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #f8d7da;">{{ verbrauch_strom_renewable.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <!-- fossil/atomar (separate row) -->
+                                <tr>
+                                    <td class="indent-1" style="background-color: #f8d7da;">fossil/atomar</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.status.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <!-- SECTION 2: VERBRAUCH BRENNSTOFFE GESAMT -->
+                                <tr class="category-brennstoffe">
+                                    <td style="background-color: #ffe5b4;"><strong>Verbr.Brennst.ges.</strong></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels.status.mobile|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"><strong>{{ verbrauch_fuels.status.gesamt|format_energy }}</strong></td>
+                                </tr>
+
+                                <tr>
+                                    <td class="indent-1" style="background-color: #ffe5b4;">erneuerbar*</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_renewable.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_renewable.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_renewable.status.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #ffe5b4;">{{ verbrauch_fuels_renewable.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <tr>
+                                    <td class="indent-1" style="background-color: #ffe5b4;">fossil</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_fossil.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_fossil.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ verbrauch_fuels_fossil.status.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #ffe5b4;">{{ verbrauch_fuels_fossil.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <tr>
+                                    <td class="indent-2" style="background-color: #ffe5b4;">davon gasf.</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ fuels_breakdown.gaseous.prozesswaerme.status|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                </tr>
+
+                                <tr>
+                                    <td class="indent-2" style="background-color: #ffe5b4;">davon flüss.</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ fuels_breakdown.liquid.prozesswaerme.status|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                </tr>
+
+                                <tr>
+                                    <td class="indent-2" style="background-color: #ffe5b4;">davon fest</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;">{{ fuels_breakdown.solid.prozesswaerme.status|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                    <td class="text-end" style="background-color: #ffe5b4;"></td>
+                                </tr>
+
+                                <!-- SECTION 5: VERBRAUCH WÄRME -->
+                                <tr class="category-waerme table-success">
+                                    <td style="background-color: #d4edda;"><strong>Verbrauch Wärme</strong></td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.status.mobile|format_energy }}</td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_heat.status.gesamt|format_energy }}</strong></td>
+                                </tr>
+
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">erneuerbar</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.status.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">Abwärme</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.status.mobile|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">fossil</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.status.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.status.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <!-- SECTION 6: VERBRAUCH GESAMT -->
+                                <tr class="category-gesamt table-danger">
+                                    <td style="background-color: #f5c2c7;"><strong>Verbrauch gesamt</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.status.kraft_licht|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.status.gebaeudewaerme|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.status.prozesswaerme|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.status.mobile|format_energy }}</strong></td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_gesamt.status.gesamt|format_energy }}</strong></td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f5c2c7;">erneuerbar*</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_by_sector.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_by_sector.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_by_sector.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_by_sector.status.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #f5c2c7;">
+                                        <strong>{{ renewable_by_sector.status.gesamt|format_energy }}</strong>
+                                    </td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f5c2c7;">fossil</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_strom_fossil.status.kraft_licht|add:verbrauch_fuels_fossil.status.kraft_licht|add:verbrauch_heat_fossil.status.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_strom_fossil.status.gebaeudewaerme|add:verbrauch_fuels_fossil.status.gebaeudewaerme|add:verbrauch_heat_fossil.status.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_strom_fossil.status.prozesswaerme|add:verbrauch_fuels_fossil.status.prozesswaerme|add:verbrauch_heat_fossil.status.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_strom_fossil.status.mobile|add:verbrauch_fuels_fossil.status.mobile|add:verbrauch_heat_fossil.status.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #f5c2c7;"><strong>{{ verbrauch_strom_fossil.status.gesamt|add:verbrauch_fuels_fossil.status.gesamt|add:verbrauch_heat_fossil.status.gesamt|format_energy }}</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Footnote -->
+                    <div class="mt-3">
+                        <p class="text-muted small">
+                            <strong>*)</strong> Deckungsanteile erneuerbar und Abwärme können den Verbrauch übersteigen.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- ZIEL TAB -->
+                <div class="tab-pane fade" id="ziel" role="tabpanel" aria-labelledby="ziel-tab">
+                    <h3 class="mb-3 text-success">Ziel Bilanz Endenergie (GWh/a)</h3>
+
+                    <div class="table-responsive">
+                        <table class="table table-bordered bilanz-table">
+                            <thead>
+                                <tr class="table-danger">
+                                    <th style="width: 30%;">Hauptkategorie / Anwendung</th>
+                                    <th class="text-center" style="width: 14%;">Kraft/Licht<br>IKT/Kälte</th>
+                                    <th class="text-center" style="width: 14%;">Gebäudewärme</th>
+                                    <th class="text-center" style="width: 14%;">Prozesswärme</th>
+                                    <th class="text-center" style="width: 14%;">Mobile<br>Anwendungen</th>
+                                    <th class="text-center" style="width: 14%;"><strong>Insgesamt</strong></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- SECTION 1: VERBRAUCH STROM -->
+                                <tr class="category-strom">
+                                    <td style="background-color: #f8d7da;"><strong>Verbrauch Strom</strong></td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_strom.ziel.gesamt|format_energy }}</strong></td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f8d7da;">davon erneuerbar</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ renewable_by_sector.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ renewable_by_sector.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ renewable_by_sector.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ renewable_by_sector.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #f8d7da;">{{ renewable_by_sector.ziel.gesamt|format_energy }}</td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f8d7da;">davon fossil/atomar</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #f8d7da;">{{ verbrauch_strom_fossil.ziel.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <!-- SPACER ROW -->
+                                <tr class="spacer-row">
+                                    <td colspan="6"></td>
+                                </tr>
+
+                                <!-- SECTION 2: VERBRAUCH BRENNSTOFFE GESAMT -->
+                                <tr class="category-brennstoffe table-warning">
+                                    <td class="bg-warning-subtle"><strong>Verbrauch Brennstoffe gesamt</strong></td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_fuels.ziel.gesamt|format_energy }}</strong></td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td class="indent-1 bg-warning-subtle">davon erneuerbar</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_renewable.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_renewable.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_renewable.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_renewable.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #ffe5b4;">{{ verbrauch_fuels_renewable.ziel.gesamt|format_energy }}</td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td class="indent-1 bg-warning-subtle">davon fossil</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_fossil.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_fossil.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_fossil.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle">{{ verbrauch_fuels_fossil.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #ffe5b4;">{{ verbrauch_fuels_fossil.ziel.gesamt|format_energy }}</td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td class="indent-2">davon gasförmig</td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.gaseous.ziel|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.gaseous.ziel|format_energy }}</td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td class="indent-2">davon flüssig</td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.liquid.ziel|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.liquid.ziel|format_energy }}</td>
+                                </tr>
+                                <tr class="table-info">
+                                    <td class="indent-2">davon fest</td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.solid.ziel|format_energy }}</td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle"></td>
+                                    <td class="text-end bg-warning-subtle">{{ fuels_breakdown.solid.ziel|format_energy }}</td>
+                                </tr>
+
+                                <!-- SECTION 3: VERBRAUCH WÄRME -->
+                                <tr class="category-waerme table-success">
+                                    <td style="background-color: #d4edda;"><strong>Verbrauch Wärme</strong></td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_heat.ziel.gesamt|format_energy }}</strong></td>
+                                </tr>
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">davon erneuerbar</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #d4edda;">{{ verbrauch_heat_renewable.ziel.gesamt|format_energy }}</td>
+                                </tr>
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">davon Abwärme</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_abwaerme.ziel.gesamt|format_energy }}</td>
+                                </tr>
+                                <tr class="table-success">
+                                    <td class="indent-1" style="background-color: #d4edda;">davon fossil</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #d4edda;">{{ verbrauch_heat_fossil.ziel.gesamt|format_energy }}</td>
+                                </tr>
+
+                                <!-- SPACER ROW -->
+                                <tr class="spacer-row">
+                                    <td colspan="6"></td>
+                                </tr>
+
+                                <!-- SECTION 4: VERBRAUCH GESAMT -->
+                                <!-- SECTION 4: VERBRAUCH GESAMT -->
+                                <tr class="category-gesamt table-danger">
+                                    <td style="background-color: #f5c2c7;"><strong>Verbrauch gesamt</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.ziel.kraft_licht|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.ziel.gebaeudewaerme|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.ziel.prozesswaerme|format_energy }}</strong></td>
+                                    <td class="text-end" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt.ziel.mobile|format_energy }}</strong></td>
+                                    <td class="text-end total-column"><strong>{{ verbrauch_gesamt.ziel.gesamt|format_energy }}</strong></td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f5c2c7;">erneuerbar*</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_gesamt_by_sector.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_gesamt_by_sector.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_gesamt_by_sector.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ renewable_gesamt_by_sector.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end renewable-indicator" style="background-color: #f5c2c7;">
+                                        <strong>{{ renewable_gesamt_by_sector.ziel.gesamt|format_energy }}</strong>
+                                    </td>
+                                </tr>
+                                <tr class="table-danger">
+                                    <td class="indent-1" style="background-color: #f5c2c7;">fossil</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_gesamt_fossil.ziel.kraft_licht|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_gesamt_fossil.ziel.gebaeudewaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_gesamt_fossil.ziel.prozesswaerme|format_energy }}</td>
+                                    <td class="text-end" style="background-color: #f5c2c7;">{{ verbrauch_gesamt_fossil.ziel.mobile|format_energy }}</td>
+                                    <td class="text-end fossil-indicator" style="background-color: #f5c2c7;"><strong>{{ verbrauch_gesamt_fossil.ziel.gesamt|format_energy }}</strong></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Footnote -->
+                    <div class="mt-3">
+                        <p class="text-muted small">
+                            <strong>*)</strong> Deckungsanteile erneuerbar und Abwärme können den Verbrauch übersteigen.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+
+
+        </main>
+    </div>
+</div>
+
+<style>
+    .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+        box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    }
+
+    .nav-link {
+        color: #333;
+        padding: 10px 20px;
+        border-radius: 5px;
+        transition: all 0.3s ease;
+    }
+
+    .nav-link:hover {
+        background-color: #e9ecef;
+        color: #0066cc;
+    }
+
+    .nav-link.active {
+        background-color: #0066cc;
+        color: white;
+    }
+
+    .table thead th {
+        background-color: #f8f9fa;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .table tbody tr:hover {
+        background-color: #f5f5f5;
+    }
+</style>
+
+{% endblock %}

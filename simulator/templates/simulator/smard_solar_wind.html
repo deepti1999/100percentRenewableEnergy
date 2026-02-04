@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>System Architecture - Energy Simulation Platform</title>
+  <style>
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 40px;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding-bottom: 20px;
+      border-bottom: 3px solid #667eea;
+    }
+    h1 {
+      color: #2c3e50;
+      font-size: 2.2em;
+      margin: 0 0 10px 0;
+      font-weight: 700;
+    }
+    .subtitle {
+      color: #7f8c8d;
+      font-size: 1.1em;
+      margin: 0;
+    }
+    .diagram-container {
+      margin: 30px auto;
+      max-width: 600px;
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .box {
+      fill: white;
+      stroke: #2c3e50;
+      stroke-width: 2;
+      filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.2));
+      transition: all 0.3s ease;
+    }
+    .box:hover {
+      filter: drop-shadow(4px 4px 8px rgba(0,0,0,0.3));
+    }
+    .box-user { fill: #ffeaa7; }
+    .box-frontend { fill: #74b9ff; }
+    .box-backend { fill: #a29bfe; }
+    .box-database { fill: #fd79a8; }
+    .box-calculation { fill: #00b894; }
+    .box-output { fill: #fab1a0; }
+    
+    .box-text {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 16px;
+      font-weight: 600;
+      fill: #2c3e50;
+      text-anchor: middle;
+    }
+    .box-subtext {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 11px;
+      fill: #555;
+      text-anchor: middle;
+    }
+    .arrow-line {
+      stroke: #667eea;
+      stroke-width: 3;
+      fill: none;
+      marker-end: url(#arrowhead);
+    }
+    .arrow-bidirectional {
+      stroke: #e84393;
+      stroke-width: 3;
+      fill: none;
+      marker-end: url(#arrowhead-bi);
+      marker-start: url(#arrowhead-bi);
+    }
+    .label {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 12px;
+      fill: #667eea;
+      font-weight: 600;
+    }
+    .tech-stack {
+      background: #2c3e50;
+      color: white;
+      padding: 30px;
+      border-radius: 12px;
+      margin-top: 40px;
+    }
+    .tech-stack h2 {
+      margin: 0 0 20px 0;
+      color: white;
+      font-size: 1.8em;
+    }
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+    }
+    .tech-item {
+      background: rgba(255,255,255,0.1);
+      padding: 15px;
+      border-radius: 8px;
+      border-left: 3px solid #667eea;
+    }
+    .tech-item strong {
+      color: #74b9ff;
+      display: block;
+      margin-bottom: 5px;
+      font-size: 1.1em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🏗️ System Architecture</h1>
+      <p class="subtitle">Energy Simulation Platform - Data Flow Diagram</p>
+    </div>
+    
+    <div class="diagram-container">
+      <svg viewBox="0 0 800 1100" xmlns="http://www.w3.org/2000/svg">
+        <!-- Define arrow markers -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#667eea" />
+          </marker>
+          <marker id="arrowhead-bi" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+            <polygon points="0 0, 10 3, 0 6" fill="#e84393" />
+          </marker>
+        </defs>
+        
+        <!-- Layer 1: User (Browser) -->
+        <g id="user">
+          <rect class="box box-user" x="250" y="20" width="300" height="80" rx="10"/>
+          <text class="box-text" x="400" y="50">👤 User (Browser)</text>
+          <text class="box-subtext" x="400" y="70">Web Interface</text>
+          <text class="box-subtext" x="400" y="85">AJAX Requests</text>
+        </g>
+        
+        <!-- Arrow 1 -->
+        <line class="arrow-line" x1="400" y1="100" x2="400" y2="140" />
+        <text class="label" x="420" y="125">HTTP POST/GET</text>
+        
+        <!-- Layer 2: Frontend -->
+        <g id="frontend">
+          <rect class="box box-frontend" x="250" y="140" width="300" height="100" rx="10"/>
+          <text class="box-text" x="400" y="170">🎨 Frontend</text>
+          <text class="box-subtext" x="400" y="190">HTML, JavaScript, Bootstrap</text>
+          <text class="box-subtext" x="400" y="205">Chart.js Visualization</text>
+          <text class="box-subtext" x="400" y="220">Django Templates</text>
+        </g>
+        
+        <!-- Arrow 2 -->
+        <line class="arrow-line" x1="400" y1="240" x2="400" y2="280" />
+        <text class="label" x="420" y="265">HTTP Request</text>
+        
+        <!-- Layer 3: Django Views (Controllers) -->
+        <g id="backend">
+          <rect class="box box-backend" x="250" y="280" width="300" height="100" rx="10"/>
+          <text class="box-text" x="400" y="310">⚙️ Django Views</text>
+          <text class="box-subtext" x="400" y="330">views.py (Controllers)</text>
+          <text class="box-subtext" x="400" y="345">URL Routing • Authentication</text>
+          <text class="box-subtext" x="400" y="360">Balance Algorithm (lines 1574-1741)</text>
+        </g>
+        
+        <!-- Arrow 3 (Bidirectional) -->
+        <line class="arrow-bidirectional" x1="400" y1="380" x2="400" y2="440" />
+        <text class="label" x="420" y="415" style="fill: #e84393;">ORM Queries</text>
+        
+        <!-- Layer 4: Database (SQLite) -->
+        <g id="database">
+          <rect class="box box-database" x="250" y="440" width="300" height="120" rx="10"/>
+          <text class="box-text" x="400" y="470">🗄️ Database (SQLite)</text>
+          <text class="box-subtext" x="400" y="490">db.sqlite3</text>
+          <text class="box-subtext" x="400" y="505">LandUse • RenewableData</text>
+          <text class="box-subtext" x="400" y="520">VerbrauchData • GebaeudewaermeData</text>
+          <text class="box-subtext" x="400" y="535">Cascade Updates (skip_cascade=False)</text>
+        </g>
+        
+        <!-- Arrow 4 (Bidirectional) -->
+        <line class="arrow-bidirectional" x1="400" y1="560" x2="400" y2="620" />
+        <text class="label" x="420" y="595" style="fill: #e84393;">Data Exchange</text>
+        
+        <!-- Layer 5: Calculation Engine -->
+        <g id="calculation">
+          <rect class="box box-calculation" x="250" y="620" width="300" height="140" rx="10"/>
+          <text class="box-text" x="400" y="650">🧮 Calculation Engine</text>
+          <text class="box-subtext" x="400" y="670">calculation_engine/</text>
+          <text class="box-subtext" x="400" y="685">• bilanz_engine.py (Energy Balance)</text>
+          <text class="box-subtext" x="400" y="700">• renewable_engine.py (Formulas)</text>
+          <text class="box-subtext" x="400" y="715">• formula_evaluator.py (Parser)</text>
+          <text class="box-subtext" x="400" y="730">• verbrauch_engine.py (Consumption)</text>
+          <text class="box-subtext" x="400" y="745">• recalc_service.py (Full Recalc)</text>
+        </g>
+        
+        <!-- Arrow 5 -->
+        <line class="arrow-line" x1="400" y1="760" x2="400" y2="800" />
+        <text class="label" x="420" y="785">Processed Data</text>
+        
+        <!-- Layer 6: Output (Visualization) -->
+        <g id="output">
+          <rect class="box box-output" x="250" y="800" width="300" height="120" rx="10"/>
+          <text class="box-text" x="400" y="830">📊 Output (Visualization)</text>
+          <text class="box-subtext" x="400" y="850">Chart.js Graphs • Dashboard</text>
+          <text class="box-subtext" x="400" y="865">Bilanz Tables • Cockpit View</text>
+          <text class="box-subtext" x="400" y="880">JSON API Responses</text>
+          <text class="box-subtext" x="400" y="895">Real-time Balance Display</text>
+        </g>
+        
+        <!-- Return arrow to frontend -->
+        <path class="arrow-line" d="M 250 860 L 150 860 L 150 190 L 250 190" fill="none" />
+        <text class="label" x="80" y="520" transform="rotate(-90 80 520)">Response Data</text>
+      </svg>
+    </div>
+    
+    <!-- Technology Stack -->
+    <div class="tech-stack">
+      <h2>🛠️ Technology Stack</h2>
+      <div class="tech-grid">
+        <div class="tech-item">
+          <strong>Backend Framework</strong>
+          Django 4.2.23 (Python 3.9)
+        </div>
+        <div class="tech-item">
+          <strong>Database</strong>
+          SQLite 3 (db.sqlite3)
+        </div>
+        <div class="tech-item">
+          <strong>Frontend Framework</strong>
+          Bootstrap 5.x
+        </div>
+        <div class="tech-item">
+          <strong>Visualization</strong>
+          Chart.js 3.x
+        </div>
+        <div class="tech-item">
+          <strong>Server</strong>
+          Django Dev Server (Port 8001)
+        </div>
+        <div class="tech-item">
+          <strong>Languages</strong>
+          Python, JavaScript, HTML, CSS
+        </div>
+        <div class="tech-item">
+          <strong>Architecture</strong>
+          MVT (Model-View-Template)
+        </div>
+        <div class="tech-item">
+          <strong>Deployment</strong>
+          macOS Development Environment
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

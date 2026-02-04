@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100ProSim – Quick Start Guide</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background: #0b1220; color: #e5e7eb; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .page-wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px 60px; }
+        .hero { text-align: center; margin-bottom: 32px; }
+        .hero h1 { font-weight: 800; color: #fff; }
+        .hero p { color: #cbd5e1; max-width: 720px; margin: 0 auto; }
+        .step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+        .card-guide { background: #111827; border: 1px solid #1f2937; border-radius: 12px; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
+        .card-visual { height: 150px; background: linear-gradient(135deg, #0ea5e9, #10b981); position: relative; }
+        .card-visual .icon { position: absolute; bottom: 10px; right: 10px; font-size: 2rem; color: rgba(255,255,255,0.7); }
+        .card-body { padding: 16px; }
+        .card-title { color: #93c5fd; font-weight: 700; margin-bottom: 8px; }
+        .card-text { color: #cbd5e1; font-size: 0.95rem; }
+        .btn-linky { margin-top: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: #1f2937; color: #e5e7eb; border: 1px solid #334155; border-radius: 10px; text-decoration: none; transition: background 0.2s ease, transform 0.2s ease; }
+        .btn-linky:hover { background: #0ea5e9; color: #0b1220; transform: translateY(-1px); }
+        .callout { background: #0f172a; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-top: 20px; color: #cbd5e1; }
+        .mini-list { margin: 0; padding-left: 16px; color: #cbd5e1; }
+    </style>
+</head>
+<body>
+    <div class="page-wrap">
+        <div class="hero">
+            <h1>Quick Start Guide</h1>
+            <p>Follow these steps to get oriented. Each card links to the live page; the visuals hint at what you’ll see.</p>
+        </div>
+
+        <div class="step-grid">
+            <div class="card-guide">
+                <div class="card-visual" style="background: linear-gradient(135deg, #0ea5e9, #38bdf8);">
+                    <div class="icon"><i class="fas fa-bolt"></i></div>
+                </div>
+                <div class="card-body">
+                    <div class="card-title">1) Annual Electricity</div>
+                    <p class="card-text">Open the diagram, review flows, and click "Balance WS Storage" to update WS values only. 9.3.1 (405047) and 9.3.4 (189289) stay fixed.</p>
+                    <a class="btn-linky" href="{% url 'simulator:annual_electricity' %}"><i class="fas fa-play"></i>Open Annual Electricity</a>
+                </div>
+            </div>
+
+            <div class="card-guide">
+                <div class="card-visual" style="background: linear-gradient(135deg, #10b981, #22d3ee);">
+                    <div class="icon"><i class="fas fa-seedling"></i></div>
+                </div>
+                <div class="card-body">
+                    <div class="card-title">2) Renewable Data</div>
+                    <p class="card-text">Inspect status/target values and formulas. Targets update after WS balance; status stays as-is. Use this table to verify cascaded values (9.x, 10.x).</p>
+                    <a class="btn-linky" href="{% url 'simulator:renewable_list' %}"><i class="fas fa-table"></i>Open Renewable Data</a>
+                </div>
+            </div>
+
+            <div class="card-guide">
+                <div class="card-visual" style="background: linear-gradient(135deg, #f59e0b, #f97316);">
+                    <div class="icon"><i class="fas fa-gauge-high"></i></div>
+                </div>
+                <div class="card-body">
+                    <div class="card-title">3) Dashboard</div>
+                    <p class="card-text">Jump to the main dashboard to access land use, consumption, and quick links. Use it as your hub once you know the flow.</p>
+                    <a class="btn-linky" href="{% url 'simulator:main_simulation' %}"><i class="fas fa-arrow-right"></i>Open Dashboard</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="callout mt-4">
+            <strong>Tip:</strong> Typical sequence:
+            <ul class="mini-list">
+                <li>Open Annual Electricity → click “Balance WS Storage”.</li>
+                <li>Refresh Renewable Data to confirm 9.3.1 (405047) / 9.3.4 (189289) fixed values and updated 9.x/10.x totals.</li>
+                <li>Use Dashboard for any additional navigation.</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

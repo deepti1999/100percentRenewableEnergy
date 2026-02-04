@@ -1,0 +1,41 @@
+{"timestamp": "2025-12-14T20:35:14.532913Z", "level": "info", "component": "django.utils.autoreload", "file": "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", "line": 667, "function": "run_with_reloader", "message": "Watching for file changes with StatReloader", "eventType": "other", "context": {}, "stack": null}
+{"timestamp": "2025-12-14T20:35:15.034155Z", "level": "info", "component": "numexpr.utils", "file": "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/numexpr/utils.py", "line": 162, "function": "_init_num_threads", "message": "NumExpr defaulting to 8 threads.", "eventType": "other", "context": {}, "stack": null}
+{"timestamp": "2025-12-14T20:35:57.194269Z", "level": "info", "component": "django.utils.autoreload", "file": "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", "line": 265, "function": "trigger_reload", "message": "/Users/deeptimaheedharan/Desktop/total new try /simulator/apps.py changed, reloading.", "eventType": "other", "context": {}, "stack": null}
+Performing system checks...
+
+System check identified no issues (0 silenced).
+
+You have 2 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): simulator.
+Run 'python manage.py migrate' to apply them.
+December 14, 2025 - 20:35:15
+Django version 4.2.24, using settings 'landuse_project.settings'
+Starting development server at http://127.0.0.1:8001/
+Quit the server with CONTROL-C.
+
+{"timestamp": "2025-12-14T20:35:57.817398Z", "level": "info", "component": "django.utils.autoreload", "file": "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", "line": 667, "function": "run_with_reloader", "message": "Watching for file changes with StatReloader", "eventType": "other", "context": {}, "stack": null}
+Traceback (most recent call last):
+  File "/Users/deeptimaheedharan/Desktop/total new try /manage.py", line 22, in <module>
+    main()
+  File "/Users/deeptimaheedharan/Desktop/total new try /manage.py", line 18, in main
+    execute_from_command_line(sys.argv)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/commands/runserver.py", line 74, in execute
+    super().execute(*args, **options)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/commands/runserver.py", line 111, in handle
+    self.run(**options)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/core/management/commands/runserver.py", line 118, in run
+    autoreload.run_with_reloader(self.inner_run, **options)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", line 670, in run_with_reloader
+    start_django(reloader, main_func, *args, **kwargs)
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", line 649, in start_django
+    ensure_echo_on()
+  File "/Users/deeptimaheedharan/Library/Python/3.9/lib/python/site-packages/django/utils/autoreload.py", line 94, in ensure_echo_on
+    if not termios or not sys.stdin.isatty():
+AttributeError: 'NoneType' object has no attribute 'isatty'

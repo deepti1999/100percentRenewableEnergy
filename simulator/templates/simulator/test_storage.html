@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>localStorage Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #fff; }
+        .test { margin: 10px 0; padding: 10px; border-left: 4px solid #0d6efd; background: #2d2d2d; }
+        .success { border-color: #28a745; }
+        .error { border-color: #dc3545; }
+        button { padding: 10px 20px; margin: 5px; font-size: 14px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🧪 localStorage Diagnostic Test</h1>
+    <p>This page tests if localStorage is working properly in your browser.</p>
+    
+    <div id="results"></div>
+    
+    <button onclick="runTests()">Run Tests Again</button>
+    <button onclick="testSaveAndRefresh()">Test Save & Refresh</button>
+    <button onclick="viewStorage()">View Storage</button>
+    <button onclick="clearStorage()">Clear Storage</button>
+    
+    <script>
+        function log(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = 'test ' + (isError ? 'error' : 'success');
+            div.innerHTML = message;
+            document.getElementById('results').appendChild(div);
+        }
+        
+        function runTests() {
+            document.getElementById('results').innerHTML = '';
+            
+            log('🔍 Test 1: Check if localStorage exists...');
+            if (typeof(Storage) !== "undefined") {
+                log('✅ localStorage is supported by this browser');
+            } else {
+                log('❌ localStorage is NOT supported', true);
+                return;
+            }
+            
+            log('🔍 Test 2: Try to write data...');
+            try {
+                localStorage.setItem('test_key', 'test_value');
+                log('✅ Successfully wrote to localStorage');
+            } catch (e) {
+                log('❌ FAILED to write: ' + e.message, true);
+                return;
+            }
+            
+            log('🔍 Test 3: Try to read data...');
+            const value = localStorage.getItem('test_key');
+            if (value === 'test_value') {
+                log('✅ Successfully read from localStorage');
+            } else {
+                log('❌ FAILED to read (got: ' + value + ')', true);
+            }
+            
+            log('🔍 Test 4: Check for landuse_changes_history...');
+            const saved = localStorage.getItem('landuse_changes_history');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    log('✅ Found landuse_changes_history with ' + parsed.length + ' items');
+                    log('📋 Data: ' + JSON.stringify(parsed, null, 2));
+                } catch (e) {
+                    log('❌ Found data but it\'s corrupt: ' + e.message, true);
+                }
+            } else {
+                log('ℹ️ No landuse_changes_history found (empty)');
+            }
+            
+            log('🔍 Test 5: Browser info...');
+            log('User Agent: ' + navigator.userAgent);
+            log('Cookies enabled: ' + navigator.cookieEnabled);
+            log('Private browsing: ' + (window.localStorage ? 'No (probably)' : 'Yes (probably)'));
+            
+            localStorage.removeItem('test_key');
+        }
+        
+        function testSaveAndRefresh() {
+            const testData = [{
+                code: 'TEST',
+                name: 'Test Change',
+                old_percent: 0,
+                new_percent: 5,
+                timestamp: new Date().toLocaleTimeString()
+            }];
+            
+            localStorage.setItem('landuse_changes_history', JSON.stringify(testData));
+            log('💾 Saved test data. Now REFRESH this page (F5) and run tests again to verify!');
+        }
+        
+        function viewStorage() {
+            document.getElementById('results').innerHTML = '';
+            log('📦 All localStorage items:');
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                log(key + ' = ' + value.substring(0, 100) + (value.length > 100 ? '...' : ''));
+            }
+        }
+        
+        function clearStorage() {
+            localStorage.clear();
+            log('🗑️ Cleared all localStorage');
+        }
+        
+        // Run tests on page load
+        runTests();
+    </script>
+</body>
+</html>

@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100ProSim – 100% Erneuerbare Energie Simulation</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-green: #2d5a2d;
+            --light-green: #4a7c4a;
+            --accent-green: #66cc66;
+            --bg-gradient-start: #1e3c72;
+            --bg-gradient-end: #2a5298;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        .hero-section {
+            min-height: 100vh;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>') repeat;
+            opacity: 0.3;
+        }
+
+        .floating-elements {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .floating-icon {
+            position: absolute;
+            color: rgba(255, 255, 255, 0.1);
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0px) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-20px) rotate(5deg);
+            }
+        }
+
+        .floating-icon:nth-child(1) {
+            top: 10%;
+            left: 10%;
+            font-size: 3rem;
+            animation-delay: -0.5s;
+        }
+
+        .floating-icon:nth-child(2) {
+            top: 20%;
+            right: 10%;
+            font-size: 2.5rem;
+            animation-delay: -2s;
+        }
+
+        .floating-icon:nth-child(3) {
+            bottom: 20%;
+            left: 15%;
+            font-size: 4rem;
+            animation-delay: -3.5s;
+        }
+
+        .floating-icon:nth-child(4) {
+            bottom: 15%;
+            right: 20%;
+            font-size: 2rem;
+            animation-delay: -1s;
+        }
+
+        .floating-icon:nth-child(5) {
+            top: 50%;
+            left: 5%;
+            font-size: 2.8rem;
+            animation-delay: -4s;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            color: white;
+            max-width: 900px;
+            padding: 2rem;
+        }
+
+        .hero-title {
+            font-size: 4.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(45deg, #fff, var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .hero-description {
+            font-size: 1.2rem;
+            line-height: 1.8;
+            margin-bottom: 3rem;
+            opacity: 0.85;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-section {
+            margin-top: 3rem;
+        }
+
+        .btn-begin-simulation {
+            background: linear-gradient(45deg, var(--primary-green), var(--accent-green));
+            border: none;
+            color: white;
+            font-size: 1.4rem;
+            font-weight: 600;
+            padding: 1rem 3rem;
+            border-radius: 50px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-begin-simulation:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.3);
+            background: linear-gradient(45deg, var(--accent-green), var(--primary-green));
+        }
+
+        .btn-begin-simulation::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-begin-simulation:hover::before {
+            left: 100%;
+        }
+
+        .auth-links {
+            margin-top: 2rem;
+        }
+
+        .auth-link {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            margin: 0 1rem;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            padding: 0.5rem 1rem;
+            border-radius: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .auth-link:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+            text-decoration: none;
+        }
+
+        .features-preview {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .features-preview i {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            display: block;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+
+            0%,
+            20%,
+            50%,
+            80%,
+            100% {
+                transform: translateY(0);
+            }
+
+            40% {
+                transform: translateY(-10px);
+            }
+
+            60% {
+                transform: translateY(-5px);
+            }
+        }
+
+        .energy-icons {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .energy-icon {
+            font-size: 3rem;
+            color: var(--accent-green);
+            animation: pulse 3s infinite;
+            filter: drop-shadow(0 0 10px rgba(102, 204, 102, 0.3));
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 0.7;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+        }
+
+        .energy-icon:nth-child(2) {
+            animation-delay: -1s;
+        }
+
+        .energy-icon:nth-child(3) {
+            animation-delay: -2s;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .hero-title {
+                font-size: 3rem;
+            }
+
+            .hero-subtitle {
+                font-size: 1.2rem;
+            }
+
+            .hero-description {
+                font-size: 1rem;
+            }
+
+            .btn-begin-simulation {
+                font-size: 1.2rem;
+                padding: 0.8rem 2rem;
+            }
+
+            .energy-icons {
+                gap: 1rem;
+            }
+
+            .energy-icon {
+                font-size: 2rem;
+            }
+        }
+
+        /* Walkthrough section */
+        .guide-section {
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 60px 20px;
+        }
+
+        .guide-container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .guide-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .guide-subtitle {
+            color: #cbd5e1;
+            margin-bottom: 24px;
+        }
+
+        .guide-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .guide-card {
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 12px;
+            padding: 16px;
+            height: 100%;
+        }
+
+        .guide-card h5 {
+            color: #93c5fd;
+            margin-bottom: 10px;
+        }
+
+        .guide-card p {
+            color: #cbd5e1;
+            margin: 0;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .guide-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .guide-links a {
+            text-decoration: none;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: #1f2937;
+            color: #e5e7eb;
+            border: 1px solid #334155;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .guide-links a:hover {
+            background: #0ea5e9;
+            color: #0b1324;
+            transform: translateY(-1px);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="hero-section">
+        <!-- Floating Background Icons -->
+        <div class="floating-elements">
+            <div class="floating-icon"><i class="fas fa-solar-panel"></i></div>
+            <div class="floating-icon"><i class="fas fa-wind"></i></div>
+            <div class="floating-icon"><i class="fas fa-leaf"></i></div>
+            <div class="floating-icon"><i class="fas fa-bolt"></i></div>
+            <div class="floating-icon"><i class="fas fa-seedling"></i></div>
+        </div>
+
+        <div class="hero-content">
+            <h1 class="hero-title">100ProSim</h1>
+            <p class="hero-subtitle">100% Erneuerbare Energie Simulation</p>
+
+            <!-- Energy Icons -->
+            <div class="energy-icons">
+                <div class="energy-icon"><i class="fas fa-solar-panel"></i></div>
+                <div class="energy-icon"><i class="fas fa-wind"></i></div>
+                <div class="energy-icon"><i class="fas fa-water"></i></div>
+            </div>
+
+            <div class="hero-description">
+                <strong>100ProSim</strong> ist ein umfassendes Simulationswerkzeug, das Deutschlands Weg zu
+                <strong>100% erneuerbare Energie bis 2045</strong> modelliert. Es berechnet, wie Veränderungen in der
+                Flächennutzung,
+                der erneuerbaren Erzeugung und dem Verbrauch die Energiebilanz beeinflussen und hilft strategische
+                Wege zu identifizieren, um fossile Brennstoffe vollständig durch saubere Energiequellen zu ersetzen.
+            </div>
+
+            <!-- Main CTA -->
+            <div class="cta-section">
+                {% if user.is_authenticated %}
+                <a href="{% url 'simulator:main_simulation' %}" class="btn btn-begin-simulation">
+                    <i class="fas fa-play me-2"></i>Simulation fortsetzen
+                </a>
+                <div class="auth-links">
+                    <span class="text-light">Willkommen zurück, {{ user.username }}!</span>
+                    <a href="{% url 'simulator:logout' %}" class="auth-link">
+                        <i class="fas fa-sign-out-alt me-1"></i>Abmelden
+                    </a>
+                </div>
+                {% else %}
+                <a href="{% url 'simulator:login' %}" class="btn btn-begin-simulation">
+                    <i class="fas fa-play me-2"></i>Simulation starten
+                </a>
+                <div class="auth-links">
+                    <a href="{% url 'simulator:login' %}" class="auth-link">
+                        <i class="fas fa-sign-in-alt me-1"></i>Anmelden
+                    </a>
+                    <a href="{% url 'simulator:register' %}" class="auth-link">
+                        <i class="fas fa-user-plus me-1"></i>Konto erstellen
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Scroll Indicator -->
+        <div class="features-preview">
+            <i class="fas fa-chevron-down"></i>
+            <small>Scrollen Sie, um Funktionen zu erkunden</small>
+        </div>
+    </div>
+
+    <!-- Quick guide: what to do next -->
+    <section class="guide-section">
+        <div class="guide-container">
+            <div class="guide-title">Navigation</div>
+            <div class="guide-subtitle">Ein 3-Schritte-Pfad, damit Sie genau wissen, wo Sie zuerst klicken sollten.
+            </div>
+
+            <div class="guide-steps">
+                <div class="guide-card">
+                    <h5>1) Daten überprüfen</h5>
+                    <p>Öffnen Sie die Erneuerbare Energie-Tabelle, um Ziele vs. Status und Formeln zu prüfen. Passen Sie
+                        nur Ziele an; Status bleibt unverändert.</p>
+                </div>
+                <div class="guide-card">
+                    <h5>2) WS-Speicher ausgleichen</h5>
+                    <p>Gehen Sie zum Jahresstrom-Diagramm und klicken Sie auf "WS-Speicher ausgleichen". Dies
+                        aktualisiert nur WS-Werte; 9.3.1 (405047) und 9.3.4 (189289) bleiben fest.</p>
+                </div>
+                <div class="guide-card">
+                    <h5>3) Ergebnisse überprüfen</h5>
+                    <p>Aktualisieren Sie die Erneuerbare Energie-Tabelle und die Jahresstrom-Ansicht, um aktualisierte
+                        9.x und 10.x Ziele und die finalen Flüsse zu sehen.</p>
+                </div>
+            </div>
+
+            <div class="guide-links">
+                <a href="{% url 'simulator:main_simulation' %}"><i class="fas fa-table me-1"></i>Übersicht</a>
+                <a href="{% url 'simulator:annual_electricity' %}"><i class="fas fa-bolt me-1"></i>Jahresstrom</a>
+                <a href="{% url 'simulator:renewable_list' %}"><i class="fas fa-seedling me-1"></i>Erneuerbare
+                    Energien</a>
+                <a href="{% url 'simulator:user_guide' %}"><i class="fas fa-book me-1"></i>Vollständige Anleitung</a>
+            </div>
+        </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>

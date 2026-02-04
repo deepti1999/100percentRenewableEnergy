@@ -1,0 +1,741 @@
+{% extends 'simulator/base.html' %}
+
+{% block title %}Verbrauch – Energy Consumption{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h3>Energy Consumption Data (Verbrauch)</h3>
+    <p class="text-muted mb-2">KLIK (Kraft, Licht, Information, Kommunikation, Kälte) + Gebäudewärme</p>
+
+    <!-- Legend for editable fields -->
+    <div class="alert alert-info mb-3" role="alert">
+        <strong>📝 How to edit:</strong>
+        <span class="ms-2"
+            style="background-color: #cfe2ff; padding: 3px 8px; border-radius: 4px; border: 1px solid #9ec5fe;">
+            ✏️ Blue cells
+        </span>
+        <span class="ms-1">are editable - Click to change values</span>
+        <span class="ms-3" style="background-color: #f8f9fa; padding: 3px 8px; border-radius: 4px; opacity: 0.7;">
+            Gray cells
+        </span>
+        <span class="ms-1">are read-only (calculated or fixed)</span>
+    </div>
+
+    <table class="table table-bordered table-hover align-middle">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 8%;">Code</th>
+                <th style="width: 35%;">Category</th>
+                <th style="width: 8%;">Unit</th>
+                <th style="width: 12%;">Status</th>
+                <th style="width: 12%;">Ziel (Target)</th>
+                <th style="width: 12%;">User %</th>
+                <th style="width: 8%;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            {% if row.is_section_header %}
+            <!-- Section Header Row -->
+            <tr class="table-secondary">
+                <td colspan="7" class="text-center fw-bold py-2">
+                    <h6 class="mb-0 text-primary">{{ row.category }}</h6>
+                </td>
+            </tr>
+            {% elif row.is_category_heading %}
+            <!-- Main Category Heading Row (e.g., 1, 2, 3, 4, 5 - no dots in code) -->
+            <tr class="category-heading-row">
+                <td class="fw-bold category-code">{{ row.code }}</td>
+                <td colspan="5" class="category-title">
+                    <strong>{{ row.category }}</strong>
+                </td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline-secondary" disabled>
+                        <i class="fas fa-folder-open"></i>
+                    </button>
+                </td>
+            </tr>
+            {% else %}
+            <!-- Data Row -->
+            <tr>
+                <td class="fw-bold">{{ row.code }}</td>
+                <td
+                    style="padding-left: {% if row.code|length > 3 %}50px{% elif '.' in row.code %}30px{% else %}10px{% endif %};">
+                    <span class="{% if '.' in row.code %}text-muted{% else %}fw-bold{% endif %}">
+                        {% if row.category|first == '=' %}
+                        <strong style="color: #0066cc;">{{ row.category }}</strong>
+                        {% elif '=' in row.category or 'Result' in row.category %}
+                        <em style="color: #006600;">{{ row.category }}</em>
+                        {% else %}
+                        {{ row.category }}
+                        {% endif %}
+                    </span>
+                </td>
+                <td class="text-center">{{ row.unit }}</td>
+                <td class="text-end">
+                    {% if row.status is not None %}
+                    {{ row.status|floatformat:2 }}
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if row.ziel is not None %}
+                    {% if "(Passiv)" in row.ziel or "Aktiv" in row.ziel %}
+                    {{ row.ziel|safe }}
+                    {% else %}
+                    {{ row.ziel|floatformat:2 }}
+                    {% endif %}
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                {% if row.user_editable %}
+                <td contenteditable="true" class="text-center editable-user-input editable-highlight"
+                    data-field="user_percent" data-code="{{ row.code }}"
+                    data-original-value="{{ row.user_percent|default:'' }}"
+                    title="✏️ Click to edit - This field is user-editable">
+                    <span class="edit-icon">✏️</span>
+                    {% if row.user_percent %}{{ row.user_percent|floatformat:1 }}{% else %}<span
+                        class="placeholder-text">Click to edit...</span>{% endif %}
+                </td>
+                {% else %}
+                <td class="text-center text-muted non-editable-cell" title="🔒 This field is not editable">
+                    {% if row.user_percent %}{{ row.user_percent|floatformat:1 }}{% else %}-{% endif %}
+                </td>
+                {% endif %}
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editRow('{{ row.code }}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="text-end mt-3">
+        <button class="btn btn-warning me-2" id="saveRecalcBtn">
+            <i class="fas fa-sync-alt"></i> Save & Recalculate
+        </button>
+        <button class="btn btn-primary me-2" id="recalculateBtn">
+            <i class="fas fa-calculator"></i> Recalculate All
+        </button>
+        <button class="btn btn-success me-2" id="saveAllBtn">
+            <i class="fas fa-save"></i> Save All Values
+        </button>
+
+    </div>
+
+    <!-- Recent Changes Panel -->
+    <div class="card mt-3" id="verbrauch-changes-panel">
+        <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleVerbrauchChangesPanel()">
+            <h6 class="mb-0">
+                <i class="fas fa-history me-2"></i>Recent Changes
+                <span id="verbrauch-changes-count-badge" class="badge bg-primary ms-2" style="display: none;">0</span>
+                <small class="text-muted ms-2" style="font-weight: normal; font-size: 0.85em;">
+                    <i class="fas fa-info-circle me-1"></i>Changes persist after page refresh
+                </small>
+            </h6>
+            <div>
+                <button class="btn btn-sm btn-outline-danger me-2" onclick="event.stopPropagation(); clearVerbrauchChangesHistory();" title="Clear all changes">
+                    <i class="fas fa-trash-alt"></i> Clear
+                </button>
+                <i id="verbrauch-changes-toggle-icon" class="fas fa-chevron-up"></i>
+            </div>
+        </div>
+        <div class="card-body" id="verbrauch-changes-panel-body">
+            <div id="verbrauch-changes-list" class="list-group">
+                <div class="text-center text-muted py-3" id="no-verbrauch-changes-msg">
+                    <i class="fas fa-info-circle me-2"></i>No changes yet. When you modify Verbrauch values, they will appear here.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Category heading rows (e.g., 1. Kraft Licht, 2. Gebäudewärme) */
+    .category-heading-row {
+        background-color: #e8f4fd !important;
+        border-top: 2px solid #0d6efd;
+        border-bottom: 1px solid #bee5eb;
+    }
+
+    .category-heading-row .category-code {
+        font-size: 1.1em;
+        color: #0d6efd;
+        text-align: center;
+        vertical-align: middle;
+        padding: 12px 8px;
+    }
+
+    .category-heading-row .category-title {
+        font-size: 1.05em;
+        color: #1a5276;
+        padding: 12px 15px;
+        vertical-align: middle;
+    }
+
+    /* Editable cells - clear blue background with edit icon */
+    .editable-highlight {
+        background-color: #cfe2ff !important;
+        /* Light blue */
+        cursor: text;
+        min-height: 40px;
+        position: relative;
+        border: 2px solid #9ec5fe;
+        font-weight: 500;
+    }
+
+    .editable-highlight:hover {
+        background-color: #b6d4fe !important;
+        /* Slightly darker blue on hover */
+        border: 2px solid #0d6efd;
+        box-shadow: 0 0 5px rgba(13, 110, 253, 0.3);
+    }
+
+    .editable-highlight:focus {
+        outline: none;
+        background-color: #fff !important;
+        border: 2px solid #0d6efd;
+        box-shadow: 0 0 8px rgba(13, 110, 253, 0.5);
+    }
+
+    /* Edit icon for editable cells */
+    .edit-icon {
+        font-size: 12px;
+        margin-right: 4px;
+        opacity: 0.6;
+    }
+
+    /* Non-editable cells - subtle gray */
+    .non-editable-cell {
+        background-color: #f8f9fa;
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
+    /* Placeholder text styling */
+    .placeholder-text {
+        color: #6c757d;
+        font-style: italic;
+        font-size: 0.9em;
+    }
+
+    /* Keyboard shortcut styling */
+    kbd {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 0.9em;
+        font-family: monospace;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .editable-cell {
+        cursor: text;
+        min-height: 40px;
+        position: relative;
+    }
+
+    .editable-cell:hover {
+        background-color: #f8f9fa !important;
+        border: 2px solid #007bff;
+    }
+
+    .editable-cell:focus {
+        outline: none;
+        background-color: white !important;
+        border: 2px solid #0056b3;
+    }
+
+    /* PERSISTENT highlight for rebalanced rows - stays until page refresh */
+    .rebalanced-highlight {
+        background-color: #d4edda !important;
+        /* Light green - stays solid */
+    }
+
+    .rebalanced-highlight td {
+        background-color: #d4edda !important;
+        /* Ensure all cells in row are green */
+    }
+
+    /* Primary change (user edited) - slightly darker green */
+    .primary-highlight {
+        background-color: #c3e6cb !important;
+        /* Darker green for the one you changed */
+    }
+
+    .primary-highlight td {
+        background-color: #c3e6cb !important;
+    }
+
+    /* Badge for showing old → new values */
+    .change-badge {
+        font-size: 0.75em;
+        background: #ffc107;
+        color: #000;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 5px;
+        animation: fadeIn 0.5s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: scale(0.8);
+        }
+
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    /* Recent Changes Panel Styles */
+    #verbrauch-changes-panel {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    #verbrauch-changes-panel .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    #verbrauch-changes-panel .list-group-item {
+        border-left: 3px solid #0d6efd;
+        margin-bottom: 4px;
+        border-radius: 4px;
+    }
+
+    #verbrauch-changes-panel .list-group-item:hover {
+        background-color: #f8f9fa;
+    }
+</style>
+
+<script>
+    // ========================================================================
+    // VERBRAUCH CHANGES TRACKING & DISPLAY FUNCTIONS
+    // ========================================================================
+    
+    let verbrauchChangesHistory = [];
+    const VERBRAUCH_STORAGE_KEY = 'verbrauch_changes_history';
+    
+    // Load changes on page load
+    function loadVerbrauchChangesHistory() {
+        try {
+            const saved = localStorage.getItem(VERBRAUCH_STORAGE_KEY);
+            if (saved) {
+                verbrauchChangesHistory = JSON.parse(saved);
+                displayVerbrauchChanges();
+            }
+        } catch (e) {
+            console.error('Error loading verbrauch changes:', e);
+            verbrauchChangesHistory = [];
+        }
+    }
+    
+    // Save changes to localStorage
+    function saveVerbrauchChangesHistory() {
+        try {
+            localStorage.setItem(VERBRAUCH_STORAGE_KEY, JSON.stringify(verbrauchChangesHistory));
+        } catch (e) {
+            console.error('Error saving verbrauch changes:', e);
+        }
+    }
+    
+    // Add a change to history
+    function addVerbrauchChange(code, category, oldValue, newValue, source = 'user') {
+        const change = {
+            code: code,
+            category: category,
+            old_value: oldValue,
+            new_value: newValue,
+            source: source,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Add to beginning of array (most recent first)
+        verbrauchChangesHistory.unshift(change);
+        
+        // Keep only last 50 changes
+        if (verbrauchChangesHistory.length > 50) {
+            verbrauchChangesHistory = verbrauchChangesHistory.slice(0, 50);
+        }
+        
+        saveVerbrauchChangesHistory();
+        displayVerbrauchChanges();
+    }
+    
+    // Display changes in the panel
+    function displayVerbrauchChanges() {
+        const listEl = document.getElementById('verbrauch-changes-list');
+        const noChangesMsg = document.getElementById('no-verbrauch-changes-msg');
+        const badge = document.getElementById('verbrauch-changes-count-badge');
+        
+        if (!listEl) return;
+        
+        if (verbrauchChangesHistory.length === 0) {
+            listEl.innerHTML = '';
+            if (noChangesMsg) {
+                noChangesMsg.style.display = 'block';
+                listEl.appendChild(noChangesMsg);
+            }
+            if (badge) badge.style.display = 'none';
+            return;
+        }
+        
+        if (noChangesMsg) noChangesMsg.style.display = 'none';
+        if (badge) {
+            badge.style.display = 'inline';
+            badge.textContent = verbrauchChangesHistory.length;
+        }
+        
+        let html = '';
+        verbrauchChangesHistory.forEach((change, index) => {
+            const timestamp = new Date(change.timestamp);
+            const timeStr = timestamp.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = timestamp.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+            
+            const oldVal = change.old_value !== null && change.old_value !== undefined ? parseFloat(change.old_value).toFixed(1) : '-';
+            const newVal = change.new_value !== null && change.new_value !== undefined ? parseFloat(change.new_value).toFixed(1) : '-';
+            
+            const sourceIcon = change.source === 'user' ? '✏️' : '🔄';
+            const sourceLabel = change.source === 'user' ? 'Manual' : 'Auto';
+            
+            html += `
+                <div class="list-group-item list-group-item-action py-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <span class="badge bg-secondary me-2">${change.code}</span>
+                            <strong>${change.category || change.code}</strong>
+                        </div>
+                        <small class="text-muted">${dateStr} ${timeStr}</small>
+                    </div>
+                    <div class="mt-1">
+                        <span class="text-danger">${oldVal}%</span>
+                        <i class="fas fa-arrow-right mx-2 text-muted"></i>
+                        <span class="text-success fw-bold">${newVal}%</span>
+                        <span class="badge ${change.source === 'user' ? 'bg-info' : 'bg-warning'} ms-2">${sourceIcon} ${sourceLabel}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        listEl.innerHTML = html;
+    }
+    
+    // Clear changes history
+    function clearVerbrauchChangesHistory() {
+        if (!confirm('Clear all change history?')) return;
+        verbrauchChangesHistory = [];
+        localStorage.removeItem(VERBRAUCH_STORAGE_KEY);
+        displayVerbrauchChanges();
+    }
+    
+    // Toggle panel visibility
+    function toggleVerbrauchChangesPanel() {
+        const body = document.getElementById('verbrauch-changes-panel-body');
+        const icon = document.getElementById('verbrauch-changes-toggle-icon');
+        if (body.style.display === 'none') {
+            body.style.display = 'block';
+            icon.className = 'fas fa-chevron-up';
+        } else {
+            body.style.display = 'none';
+            icon.className = 'fas fa-chevron-down';
+        }
+    }
+
+    function editRow(code) {
+        alert(`Edit functionality for ${code} will be implemented later!`);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Load saved changes history
+        loadVerbrauchChangesHistory();
+        
+        // Handle editable user input cells
+        const editableCells = document.querySelectorAll('.editable-user-input');
+
+        editableCells.forEach(cell => {
+            // Clear placeholder on focus
+            cell.addEventListener('focus', function () {
+                if (this.textContent.includes('Click to edit') || this.textContent.includes('Enter')) {
+                    this.textContent = '';
+                }
+                // Store original value for potential cancel
+                this.dataset.tempValue = this.textContent.trim();
+            });
+
+            // Handle Enter key - SAVE
+            cell.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+
+                    const newValue = this.textContent.trim();
+                    const originalValue = this.dataset.originalValue;
+                    const code = this.dataset.code;
+
+                    if (newValue === '') {
+                        this.innerHTML = '<span class="placeholder-text">Click to edit...</span>';
+                        return;
+                    }
+
+                    // Check if value changed
+                    const numValue = parseFloat(newValue);
+                    if (isNaN(numValue)) {
+                        alert('⚠️ Please enter a valid number');
+                        this.textContent = originalValue || '';
+                        if (!originalValue) {
+                            this.innerHTML = '<span class="placeholder-text">Click to edit...</span>';
+                        }
+                        return;
+                    }
+
+                    // Save the new value only if changed
+                    if (newValue !== originalValue) {
+                        saveUserInput(code, numValue, this);
+                    }
+
+                    this.blur(); // Remove focus after saving
+                }
+            });
+
+            // Handle Escape key - CANCEL
+            cell.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    // Restore original value
+                    const originalValue = this.dataset.originalValue;
+                    if (originalValue) {
+                        this.textContent = originalValue;
+                    } else {
+                        this.innerHTML = '<span class="placeholder-text">Click to edit...</span>';
+                    }
+                    this.blur();
+                }
+            });
+
+            // On blur without Enter - restore original value (no save)
+            cell.addEventListener('blur', function () {
+                const currentValue = this.textContent.trim();
+                const originalValue = this.dataset.originalValue;
+
+                // If user left field without pressing Enter, restore original
+                if (currentValue === '' || currentValue.includes('Click to edit')) {
+                    if (originalValue) {
+                        this.textContent = originalValue;
+                    } else {
+                        this.innerHTML = '<span class="placeholder-text">Click to edit...</span>';
+                    }
+                } else if (currentValue !== originalValue) {
+                    // User changed value but didn't press Enter - restore original
+                    if (originalValue) {
+                        this.textContent = originalValue;
+                    } else {
+                        this.innerHTML = '<span class="placeholder-text">Click to edit...</span>';
+                    }
+                }
+            });
+        });
+
+        function saveUserInput(code, value, cell) {
+            const originalHtml = cell.innerHTML;
+            const originalValue = cell.dataset.originalValue;
+            cell.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            // Get the category name from the row
+            const row = cell.closest('tr');
+            const categoryCell = row ? row.querySelector('td:nth-child(2)') : null;
+            const category = categoryCell ? categoryCell.textContent.trim() : code;
+
+            fetch('/api/save-verbrauch-user-input/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    code: code,
+                    user_percent: value
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Track the change in history
+                        addVerbrauchChange(code, category, originalValue, value, 'user');
+                        
+                        // Update the cell with new value
+                        cell.dataset.originalValue = value;
+                        cell.textContent = value.toFixed(1);
+
+                        // Highlight rebalanced rows (if any)
+                        if (data.rebalanced && Object.keys(data.rebalanced).length > 0) {
+                            // Also track rebalanced changes
+                            Object.keys(data.rebalanced).forEach(rebalCode => {
+                                if (rebalCode !== code) {
+                                    const info = data.rebalanced[rebalCode];
+                                    addVerbrauchChange(rebalCode, info.category || rebalCode, info.old, info.new, 'auto');
+                                }
+                            });
+                            highlightRebalancedRows(data.rebalanced, code);
+                        } else {
+                            // No rebalancing, just reload after a short delay
+                            setTimeout(() => {
+                                location.reload();
+                            }, 500);
+                        }
+                    } else {
+                        alert('❌ Error: ' + (data.error || 'Unknown error'));
+                        cell.innerHTML = originalHtml;
+                    }
+                })
+                .catch(error => {
+                    alert('❌ Error saving: ' + error);
+                    cell.innerHTML = originalHtml;
+                });
+        }
+
+        function highlightRebalancedRows(rebalanced, primaryCode) {
+            // Find and update all rows in the rebalanced group
+            Object.keys(rebalanced).forEach(code => {
+                const info = rebalanced[code];
+                const row = document.querySelector(`tr td[data-code="${code}"]`)?.closest('tr');
+
+                if (row) {
+                    // Add highlight class
+                    if (info.is_primary) {
+                        row.classList.add('primary-highlight');
+                    } else {
+                        row.classList.add('rebalanced-highlight');
+                    }
+
+                    // Update the User % cell
+                    const userPercentCell = row.querySelector('.editable-user-input');
+                    if (userPercentCell && info.new !== null) {
+                        const newVal = parseFloat(info.new).toFixed(1);
+                        userPercentCell.textContent = newVal;
+                        userPercentCell.dataset.originalValue = newVal;
+                    }
+
+                    // Update the Ziel (Target) cell
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length >= 5) {
+                        const zielCell = cells[4]; // 5th column is Ziel
+                        if (info.new !== null) {
+                            zielCell.textContent = parseFloat(info.new).toFixed(2);
+                        }
+                    }
+
+                    // Highlight stays PERMANENTLY until user refreshes the page
+                    // No auto-remove - user can see which rows changed
+                }
+            });
+
+            // Show a toast notification - NO AUTO RELOAD
+            showToast(`✅ Percentages rebalanced! ${Object.keys(rebalanced).length} values updated. Green rows show what changed. Refresh page when ready.`);
+        }
+
+        function showToast(message) {
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.className = 'position-fixed bottom-0 end-0 p-3';
+            toast.style.zIndex = '9999';
+            toast.innerHTML = `
+            <div class="toast show align-items-center text-white bg-success border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest('.position-fixed').remove()"></button>
+                </div>
+            </div>
+        `;
+            document.body.appendChild(toast);
+
+            // Auto-remove after 4 seconds
+            setTimeout(() => {
+                toast.remove();
+            }, 4000);
+        }
+
+        // Save & Recalculate button (uses fresh database values)
+        document.getElementById('saveRecalcBtn').addEventListener('click', function () {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+            fetch('/api/save-recalc-verbrauch/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ changes: {} })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(`✅ Success!\n${data.message}`);
+                        location.reload();
+                    } else {
+                        alert('❌ Error: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    alert('❌ Error: ' + error);
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-sync-alt"></i> Save & Recalculate';
+                });
+        });
+
+        // Recalculate button
+        document.getElementById('recalculateBtn').addEventListener('click', function () {
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recalculating...';
+
+            fetch('/api/recalc-verbrauch/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        alert(`Recalculation complete!\nUpdated: ${data.updated} items\nDuration: ${data.duration_ms}ms`);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error);
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-calculator"></i> Recalculate All';
+                });
+        });
+
+        document.getElementById('saveAllBtn').addEventListener('click', function () {
+            alert('Save functionality will be implemented later!');
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', function () {
+            alert('Export functionality coming soon!');
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+Code,Parameter,Type,Status,Ziel
+5,Biogas,,,
+5.1,Anbaufläche Energiepflanzen für Biogas,Calculated,,
+5.1.1,Biogas – Methanertrag (MWh/ha/a),Fixed,50.9,40.8
+5.1.2,Biogas aus Energiepflanzen-Anbau (GWh/a),Calculated,,
+5.2,Biogas aus Abfall-/Reststoffverwertung (GWh/a),Calculated,,
+5.3,Biogas aus Kläranlagen und Deponien (GWh/a),Calculated,,
+5.4,Biogasaufkommen insgesamt (GWh/a),Calculated,,
+5.4.1,davon Einsatz für Prozesswärme (%),Fixed,0.0,15.5
+5.4.1.1,Biogas für Prozesswärme (GWh/a),Calculated,,
+5.4.2,davon für Verstromung (%),Fixed,96.1,0.0
+5.4.2.1,Nutzungsgrad Kraftwerk (%),Fixed,37.5,45.0
+5.4.2.2,Bruttostromerzeugung (GWh/a),Calculated,,
+5.4.2.3,Nutzungsgrad KWK-Abwärme effektiv (%),Fixed,21.9,25.0
+5.4.2.4,Gebäudewärme (Endenergie) (GWh/a),Calculated,,
+5.4.3,davon Biomethan für mobile Anwendungen (%),Fixed,1.2,84.5
+5.4.3.1,Nutzungsgrad Kraftstoffbereitstellung (%),Fixed,98.0,98.0
+5.4.3.2,Biokraftstoff (gasförmig) (GWh/a),Calculated,,
+5.4.4,davon Flüssigkraftstoff für mobile Anwendungen (%),Fixed,2.7,0.0
+5.4.4.1,Nutzungsgrad Kraftstofferzeugung (%),Fixed,45.0,45.0
+5.4.4.2,Biokraftstoff (flüssig) (GWh/a),Calculated,,

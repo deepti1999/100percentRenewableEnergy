@@ -1,0 +1,42 @@
+Code,Parameter,Unit,Type
+9,Stromwandlung / Stromspeicherung,,
+9.1,Bruttostromerzeugung aus Erneuerbaren Energien gesamt (inkl. Abregelung),GWh/a,
+9.1.1,aus Windenergie,GWh/a,
+9.1.2,aus Solarenergie (Photovoltaik),GWh/a,
+9.1.3,aus Wasserkraft + Tiefengeothermie,GWh/a,
+9.1.4,aus Biobrennstoffen,GWh/a,
+9.2,Bruttostromerzeugung Erneuerbar (inkl. Abregelung),GWh/a,
+9.2.1,"Wasser-Elektrolyse (H₂ für Brennstoff, Kraftstoff- und Grundstoff-Synthese)",,
+9.2.1.1,Wasserstoff als Brennstoff für PW,GWh/a,
+9.2.1.1.1,Wasserstoff (komprim.) f. FC-Traktion,GWh/a,
+9.2.1.1.1.1,Nutzungsgrad tankfähiger Wasserstoff,%,Fixed
+9.2.1.1.2,Wasserstoff für MA mit FC-Traktion,GWh/a,
+9.2.1.2,Kraftstoff (gasförm. Methan) für MA aus H₂,GWh/a,
+9.2.1.2.1,Nutzungsgrad Methansynthese,%,Fixed
+9.2.1.2.2,Wasserstoff für Kraftstoffsynthese,GWh/a,
+9.2.1.3,Kraftstoffe (flüssig) für MA aus H₂,GWh/a,
+9.2.1.3.1,Nutzungsgrad Kraftstofferzeugung,%,Fixed
+9.2.1.3.2,Wasserstoff für Kraftstoffsynthese,GWh/a,
+9.2.1.4,Synth. Methan als Grundstoff,GWh/a,
+9.2.1.4.1,Nutzungsgrad Methansynthese,%,Fixed
+9.2.1.4.2,Wasserstoff für Grundstoffsynthese,GWh/a,
+9.2.1.5,Wasserstofferzeugung,GWh/a,
+9.2.1.5.1,Nutzungsgrad Wasserelektrolyse,%,Fixed
+9.2.1.5.2,Stromeinsatz Wasserstofferzeugung,GWh/a,
+9.2.1.5.2.1,davon in der Zielregion,GWh/a,
+9.2.1.5.2.2,davon extern für Importwasserstoff,GWh/a,
+9.3,Langzeitspeicherung Strom stofflich (saisonaler Ausgleich > 1 Tag),,
+9.3.1,Stromaufnahme (Überschussphasen),GWh/a,
+9.3.1.1,Nutzungsgrad Stromspeicherung,%,Fixed
+9.3.1.2,Stromabgabe (Mangelphasen),GWh/a,
+9.3.2,Nutzungsgrad KWK-Abwärme effektiv,%,Fixed
+9.3.2.1,Gebäudewärme (Endenergie),GWh/a,
+9.3.3,Erforderliche Speicherkapazität,GWh,
+9.3.4,Abregelung von Wind-/Solarstrom,GWh/a,
+9.4,Stromangebot aus Erneuerbaren Energien (EE),,
+9.4.1,Stromangebot aus eigenen Erneuerb. E.,GWh/a,
+9.4.2,Stromeinfuhr (Erneuerb.) aus dem Ausland,GWh/a,
+9.4.3,Stromangebot aus Erneuerbaren E. (gesamt),GWh/a,
+9.4.3.1,Übertragungsverluste Stromnetz,%,Fixed
+9.4.3.2,inkl. Kurzzeitspeicher,GWh/a,
+9.4.3.3,Stromangebot Erneuerb. (Endenergie),GWh/a,

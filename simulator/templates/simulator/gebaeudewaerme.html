@@ -1,0 +1,133 @@
+{% extends 'simulator/base.html' %}
+
+{% block title %}Gebäudewärme – Building Heat{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h3>Building Heat Data (Gebäudewärme)</h3>
+    <p class="text-muted mb-4">Modeled after Excel Sheet S.5 "Gebäudewärme"</p>
+
+    <div class="row text-center mb-4">
+        <div class="col-md-3"><h6>Total Records</h6><p>{{ data|length }}</p></div>
+        <div class="col-md-3"><h6>Categories</h6><p>10</p></div>
+        <div class="col-md-3"><h6>Data Source</h6><p class="text-success">CSV Data</p></div>
+        <div class="col-md-3"><h6>Status</h6><p class="text-success">Active</p></div>
+    </div>
+
+    <table class="table table-bordered table-hover align-middle">
+        <thead class="table-light">
+            <tr>
+                <th style="width: 8%;">Code</th>
+                <th style="width: 35%;">Category</th>
+                <th style="width: 10%;">Unit</th>
+                <th style="width: 12%;">Status</th>
+                <th style="width: 12%;">Ziel (Target)</th>
+                <th style="width: 12%;">Formula</th>
+                <th style="width: 8%;">User %</th>
+                <th style="width: 8%;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data %}
+            <tr>
+                <td class="fw-bold">{{ row.code }}</td>
+                <td style="padding-left: {% if '.' in row.code %}30px{% else %}10px{% endif %};">
+                    <span class="{% if '.' in row.code %}text-muted{% else %}fw-bold{% endif %}">
+                        {{ row.category }}
+                    </span>
+                </td>
+                <td class="text-center small">{{ row.unit }}</td>
+                <td class="text-end">
+                    {% if row.status %}
+                        {{ row.status|floatformat:1 }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="text-end">
+                    {% if row.ziel %}
+                        {{ row.ziel|floatformat:1 }}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td class="text-center small">
+                    {% if row.formula %}
+                        <span class="badge bg-info">{{ row.formula|truncatechars:10 }}</span>
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                </td>
+                <td contenteditable="true" class="bg-light text-center" data-field="user_percent" data-code="{{ row.code }}">
+                    {% if row.user_percent %}{{ row.user_percent|floatformat:1 }}{% else %}Enter %...{% endif %}
+                </td>
+                <td class="text-center">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editRow('{{ row.code }}')">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="text-end mt-3">
+        <button class="btn btn-success me-2" id="saveAllBtn">
+            <i class="fas fa-save"></i> Save All Values
+        </button>
+        <button class="btn btn-secondary" id="exportBtn">
+            <i class="fas fa-download"></i> Export CSV
+        </button>
+    </div>
+</div>
+
+<style>
+.editable-cell {
+    cursor: text;
+    min-height: 40px;
+    position: relative;
+}
+.editable-cell:hover {
+    background-color: #f8f9fa !important;
+    border: 2px solid #007bff;
+}
+.editable-cell:focus {
+    outline: none;
+    background-color: white !important;
+    border: 2px solid #0056b3;
+}
+</style>
+
+<script>
+function editRow(code) {
+    alert(`Edit functionality for ${code} will be implemented later!`);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle editable cells
+    const editableCells = document.querySelectorAll('[contenteditable="true"]');
+    
+    editableCells.forEach(cell => {
+        cell.addEventListener('focus', function() {
+            if (this.textContent.includes('Enter')) {
+                this.textContent = '';
+            }
+        });
+        
+        cell.addEventListener('blur', function() {
+            if (this.textContent.trim() === '') {
+                this.textContent = this.dataset.field === 'user_percent' ? 'Enter %...' : 'Enter value...';
+            }
+        });
+    });
+    
+    document.getElementById('saveAllBtn').addEventListener('click', function() {
+        alert('Save functionality will be implemented later!');
+    });
+    
+    document.getElementById('exportBtn').addEventListener('click', function() {
+        alert('Export functionality will be implemented later!');
+    });
+});
+</script>
+{% endblock %}

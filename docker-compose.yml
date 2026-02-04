@@ -1,0 +1,39 @@
+services:
+  app-dev:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - .env.django
+    environment:
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+      DJANGO_LOG_LEVEL: "INFO"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+
+  app-test:
+    build: .
+    command: python -m django test
+    env_file:
+      - .env.django
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+      DJANGO_LOG_LEVEL: "INFO"
+    volumes:
+      - .:/app
+
+  app-prod:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - .env.django
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0"
+      DJANGO_LOG_LEVEL: "INFO"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

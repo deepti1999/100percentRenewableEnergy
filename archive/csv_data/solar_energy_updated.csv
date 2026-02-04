@@ -1,0 +1,19 @@
+Code,Name,Unit,Fixed Value,Target,Fixed?,Formula,Parent
+1,Solarenergie,-,,,,,
+1.1,Solare Dachflächen,ha,34243.0,199398.0,NO,comes from LandUse,1
+1.1.1,Solarthermie,-,,,,,
+1.1.1.1,Anteil an solaren Dachflächen,%,6.4,1.1,YES,,1.1.1
+1.1.1.1.1,Energieertrag,MWh/ha/a,3.878,5250,YES,,1.1.1.1
+1.1.1.1.2,Gebäudewärme,GWh/a,,11515,NO,(ha * AnteilThermie * ErtragThermie)/1000,1.1.1.1
+1.1.2,Solarstrom,-,,,,,
+1.1.2.1,Anteil an solaren Dachflächen (Strom),%,,98.9,NO,100 - AnteilThermie,1.1.2
+1.1.2.1.1,Energieertrag,MWh/ha/a,1.383,1853,YES,,1.1.2.1
+1.1.2.1.2,Bruttostromerzeugung,GWh/a,,365421,NO,(ha * AnteilStrom * ErtragStrom)/1000,1.1.2.1
+1.1.2.1.2.1,Vollbetriebstunden jährlich,h/a,927.0,927,YES,,1.1.2.1.2
+1.1.2.1.2.2,Installierte Leistung,MW,,394410,NO,Bruttostromerzeugung/Vollbetriebsstunden,1.1.2.1.2
+1.2,Solar genutzte Freiflächen,ha,19628.0,676910,NO,comes from LandUse,1
+1.2.1,Solarstrom,-,,,,,
+1.2.1.1,Energieertrag,MWh/ha/a,922.0,1235,YES,,1.2.1
+1.2.1.2,Bruttostromerzeugung,GWh/a,,836209,NO,(ha * Ertrag)/1000,1.2.1
+1.2.1.2.1,Vollbetriebstunden jährlich,h/a,927.0,927,YES,,1.2.1.2
+1.2.1.2.2,Installierte Leistung,MW,,902546,NO,Bruttostromerzeugung/Vollbetriebsstunden,1.2.1.2

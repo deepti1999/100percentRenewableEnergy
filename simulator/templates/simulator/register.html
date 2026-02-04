@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Account - 100ProSim</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-green: #2d5a2d;
+            --light-green: #4a7c4a;
+            --accent-green: #66cc66;
+            --bg-gradient-start: #1e3c72;
+            --bg-gradient-end: #2a5298;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 2rem 0;
+        }
+
+        .register-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+            padding: 3rem;
+            max-width: 500px;
+            width: 90%;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .register-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .register-title {
+            color: var(--primary-green);
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .register-subtitle {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .form-control {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 1rem;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            margin-bottom: 1rem;
+        }
+
+        .form-control:focus {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 0 0.2rem rgba(102, 204, 102, 0.25);
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+            z-index: 3;
+        }
+
+        .form-control.with-icon {
+            padding-left: 3rem;
+        }
+
+        .btn-register {
+            background: linear-gradient(45deg, var(--primary-green), var(--accent-green));
+            border: none;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 1rem;
+            border-radius: 10px;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-register:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(45deg, var(--accent-green), var(--primary-green));
+        }
+
+        .auth-links {
+            text-align: center;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .auth-link {
+            color: var(--primary-green);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .auth-link:hover {
+            color: var(--accent-green);
+            text-decoration: underline;
+        }
+
+        .back-link {
+            position: absolute;
+            top: 2rem;
+            left: 2rem;
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            color: white;
+            text-decoration: none;
+            transform: translateX(-5px);
+        }
+
+        .alert {
+            border-radius: 10px;
+            margin-bottom: 1rem;
+        }
+
+        .form-text {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: -0.5rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <a href="{% url 'simulator:landing_page' %}" class="back-link">
+        <i class="fas fa-arrow-left me-2"></i>Back to Home
+    </a>
+
+    <div class="register-container">
+        <div class="register-header">
+            <h1 class="register-title">
+                <i class="fas fa-leaf me-2"></i>Join 100ProSim
+            </h1>
+            <p class="register-subtitle">Create your account to save simulations</p>
+        </div>
+
+        <!-- Display Messages -->
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+            
+            <div class="input-group">
+                <i class="fas fa-user input-icon"></i>
+                <input type="text" 
+                       name="username" 
+                       class="form-control with-icon" 
+                       placeholder="Username"
+                       value="{{ form.username.value|default:'' }}"
+                       required>
+                {% if form.username.errors %}
+                    <div class="form-text text-danger">{{ form.username.errors.0 }}</div>
+                {% else %}
+                    <div class="form-text">Choose a unique username for your account</div>
+                {% endif %}
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-lock input-icon"></i>
+                <input type="password" 
+                       name="password1" 
+                       class="form-control with-icon" 
+                       placeholder="Password"
+                       required>
+                {% if form.password1.errors %}
+                    <div class="form-text text-danger">{{ form.password1.errors.0 }}</div>
+                {% else %}
+                    <div class="form-text">Password must be at least 8 characters</div>
+                {% endif %}
+            </div>
+
+            <div class="input-group">
+                <i class="fas fa-lock input-icon"></i>
+                <input type="password" 
+                       name="password2" 
+                       class="form-control with-icon" 
+                       placeholder="Confirm Password"
+                       required>
+                {% if form.password2.errors %}
+                    <div class="form-text text-danger">{{ form.password2.errors.0 }}</div>
+                {% else %}
+                    <div class="form-text">Enter the same password again</div>
+                {% endif %}
+            </div>
+
+            <button type="submit" class="btn btn-register">
+                <i class="fas fa-user-plus me-2"></i>Create Account
+            </button>
+        </form>
+
+        <div class="auth-links">
+            <p class="mb-0">Already have an account? 
+                <a href="{% url 'simulator:login' %}" class="auth-link">Sign in here</a>
+            </p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

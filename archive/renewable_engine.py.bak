@@ -1,0 +1,1255 @@
+"""
+Renewable Energy Calculator - 100% Database-Driven
+===================================================
+
+✅ FULLY EXTENSIBLE - ALL FORMULAS FROM DATABASE!
+
+This provides:
+- Editable formulas via Django Admin
+- Real-time formula updates without code changes
+- Versioning and validation
+- NO hardcoded formulas - database only!
+"""
+
+from .formula_evaluator import FormulaEvaluator
+from simulator.formula_service import FormulaService
+
+
+class RenewableCalculator:
+    """
+    Calculator for renewable energy values.
+    100% DATABASE-DRIVEN - NO HARDCODED FORMULAS!
+    
+    Now uses FormulaService to load formulas from database only.
+    """
+    
+    def __init__(self):
+        self.evaluator = FormulaEvaluator()
+        self.formula_service = FormulaService(use_cache=True)
+    '1.1': {
+        'name': 'Solare Dachflächen',
+        'formula': None,
+        'is_fixed': False
+    },
+    '1.1.1': {
+        'name': 'Solarthermie',
+        'formula': '1.1.1.1.1 + 1.1.1.1.2 + 1.1.1.1 + 4.1.1.1.1 + 4.1.1.1.1.1 + 4.1.1.1.1.2 + 9.2.1.1.1.1',
+        'is_fixed': True
+    },
+    '1.1.1.1': {
+        'name': 'Anteil an solaren Dachflächen',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.1.1.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.1.1.1.2': {
+        'name': 'Gebäudewärme',
+        'formula': '1.1 * (1.1.1.1/100) * 1.1.1.1.1 / 1000',
+        'is_fixed': False
+    },
+    '1.1.2': {
+        'name': 'Solarstrom',
+        'formula': '1.1.2.1 + 2.1.1.2.1 + 2.1.1.2.2 + 2.1.1.2.3 + 4.2.1.1.2.1 + 4.2.1.1.2.2 + 4.2.1.1.2.3 + 4.2.1.1.2.4',
+        'is_fixed': True
+    },
+    '1.1.2.1': {
+        'name': 'Anteil an solaren Dachflächen (Strom)',
+        'formula': '100 - AnteilThermie',
+        'is_fixed': False
+    },
+    '1.1.2.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.1.2.1.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '1.1 * 1.1.2.1 / 100 * 1.1.2.1.1 / 1000',
+        'is_fixed': False
+    },
+    '1.1.2.1.2.1': {
+        'name': 'Vollbetriebstunden jährlich',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.1.2.1.2.2': {
+        'name': 'Installierte Leistung',
+        'formula': '1.1.2.1.2 / 1.1.2.1.2.1 * 1000',
+        'is_fixed': False
+    },
+    '1.2': {
+        'name': 'Solar genutzte Freiflächen',
+        'formula': 'LandUse_LU_2.1',
+        'is_fixed': False
+    },
+    '1.2.1': {
+        'name': 'Solarstrom',
+        'formula': '1.1.2.1.1 + 1.1.2.1.2 + 1.2.1.1 + 1.2.1.2 + 4.1.2.1.1 + 4.1.2.1.2',
+        'is_fixed': True
+    },
+    '1.2.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.2.1.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': 'LandUse_LU_2.1 * 1.2.1.1 / 1000',
+        'is_fixed': False
+    },
+    '1.2.1.2.1': {
+        'name': 'Vollbetriebstunden jährlich',
+        'formula': None,
+        'is_fixed': True
+    },
+    '1.2.1.2.2': {
+        'name': 'Installierte Leistung',
+        'formula': '1.2.1.2 / 1.2.1.2.1 * 1000',
+        'is_fixed': False
+    },
+    '10': {
+        'name': 'Endenergieangebot aus erneuerbaren Quellen gesamt',
+        'formula': None,
+        'is_fixed': True
+    },
+    '10.1': {
+        'name': 'Endenergie aus Erneuerbaren Q. gesamt',
+        'formula': '10.3 + 10.4 + 10.5 + 10.6',
+        'is_fixed': False
+    },
+    '10.2': {
+        'name': 'Strom',
+        'formula': '9.4.3.3',
+        'is_fixed': False
+    },
+    '10.2.1': {
+        'name': 'Stromverbrauch insgesamt',
+        'formula': 'VerbrauchData_5',
+        'is_fixed': False
+    },
+    '10.2.2': {
+        'name': 'Anteil Erneuerb. an Stromverbrauch',
+        'formula': '10.2 / 10.2.1 * 100',
+        'is_fixed': False
+    },
+    '10.3': {
+        'name': 'Kraft/Licht/Inform.Komm.Tech./Kälte',
+        'formula': '10.3.1',
+        'is_fixed': False
+    },
+    '10.3.1': {
+        'name': 'davon Strom',
+        'formula': 'VerbrauchData_1.4 * 10.2.2 / 100',
+        'is_fixed': False
+    },
+    '10.4': {
+        'name': 'Gebäudewärme',
+        'formula': '10.4.1 + 10.4.3 + 10.4.2',
+        'is_fixed': False
+    },
+    '10.4.1': {
+        'name': 'davon Brennstoffe',
+        'formula': '10.4.1.3 + 10.4.1.1 + 10.4.1.2',
+        'is_fixed': False
+    },
+    '10.4.1.1': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.4.1.2': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.4.1.3': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.1',
+        'is_fixed': False
+    },
+    '10.4.2': {
+        'name': 'davon Wärme',
+        'formula': 'FIXED VALUE: davon Wärme',
+        'is_fixed': False
+    },
+    '10.4.3': {
+        'name': 'davon Strom',
+        'formula': 'VerbrauchData_2.9.0 * 10.2.2 / 100',
+        'is_fixed': False
+    },
+    '10.5': {
+        'name': 'Prozesswärme',
+        'formula': '10.5.1 + 10.5.3 + 10.5.2',
+        'is_fixed': False
+    },
+    '10.5.1': {
+        'name': 'davon Brennstoffe',
+        'formula': '10.5.1.1 + 10.5.1.2 + 10.5.1.3 + 10.5.1.4',
+        'is_fixed': False
+    },
+    '10.5.1.1': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '5.4.1.1',
+        'is_fixed': False
+    },
+    '10.5.1.2': {
+        'name': 'davon Wasserstoff',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.5.1.3': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.5.1.4': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.2',
+        'is_fixed': False
+    },
+    '10.5.2': {
+        'name': 'davon Wärme',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.5.3': {
+        'name': 'davon Strom',
+        'formula': 'VerbrauchData_3.6.0 * 10.2.2 / 100',
+        'is_fixed': False
+    },
+    '10.6': {
+        'name': 'Mobile Anwendungen',
+        'formula': '10.6.1 + 10.6.2',
+        'is_fixed': False
+    },
+    '10.6.1': {
+        'name': 'davon Kraftstoffe',
+        'formula': '10.6.1.1 + 10.6.1.2 + 10.6.1.3',
+        'is_fixed': False
+    },
+    '10.6.1.1': {
+        'name': 'davon Wasserstoff',
+        'formula': 'FIXED VALUE: davon Wasserstoff (FC-Traktion)',
+        'is_fixed': False
+    },
+    '10.6.1.2': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '5.4.3.2',
+        'is_fixed': False
+    },
+    '10.6.1.3': {
+        'name': 'davon Kohlenwasserstoffe flüssig',
+        'formula': '6.1.3.1.1 + 6.2.3 + 9.2.1.3',
+        'is_fixed': False
+    },
+    '10.6.2': {
+        'name': 'davon Strom',
+        'formula': 'VerbrauchData_4.3.6 * 10.2.2 / 100',
+        'is_fixed': False
+    },
+    '10.7': {
+        'name': 'Brennstoffe',
+        'formula': '10.7.1 + 10.7.2 + 10.7.3 + 10.7.4',
+        'is_fixed': False
+    },
+    '10.7.1': {
+        'name': 'davon Wasserstoff',
+        'formula': '4.3.4.2',
+        'is_fixed': False
+    },
+    '10.7.2': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '5.4.3.2 + 5.4.1.1',
+        'is_fixed': False
+    },
+    '10.7.3': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '10.6.1.3',
+        'is_fixed': False
+    },
+    '10.7.4': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3.1 + 4.3.2',
+        'is_fixed': False
+    },
+    '10.8': {
+        'name': 'Grundstoff Methan',
+        'formula': '9.2.1.4',
+        'is_fixed': False
+    },
+    '10.9': {
+        'name': 'Primärenergie-Einsatz Biobrennstoffe',
+        'formula': 'CATEGORY: No calculation',
+        'is_fixed': True
+    },
+    '10.9.1': {
+        'name': 'Brennstoffe',
+        'formula': '10.9.1.1 + 10.9.1.2 + 10.9.1.3',
+        'is_fixed': False
+    },
+    '10.9.1.1': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '5.1.2 + 5.2 + 5.3',
+        'is_fixed': False
+    },
+    '10.9.1.2': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '6.1.1.2 + 6.1.2 + 6.2.2 + 6.2.1.2',
+        'is_fixed': False
+    },
+    '10.9.1.3': {
+        'name': 'davon Kohlenwasserstoffe',
+        'formula': '4.3 + 4.4',
+        'is_fixed': False
+    },
+    '2.1': {
+        'name': 'Onshore-Windstrom',
+        'formula': '6.2.1.1 + 6.2.1.2 + 1.1.2.1.1 + 1.1.2.1.2 + 1.2.1.1 + 1.2.1.2 + 4.1.2.1.1 + 4.1.2.1.2 + 2.2.1.1 + 2.2.1.2 + 2.1.1 + 4.2.1.1 + 9.2.1.1 + 9.2.1.2 + 9.2.1.3 + 9.2.1.4 + 9.2.1.5',
+        'is_fixed': True
+    },
+    '2.1.1': {
+        'name': 'Windparkfläche',
+        'formula': 'LandUse_LU_6',
+        'is_fixed': False
+    },
+    '2.1.1.1': {
+        'name': 'spezifischer Flächenbedarf',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.1.1.2': {
+        'name': 'Installierte Leistung',
+        'formula': '2.1.1 / 2.1.1.1',
+        'is_fixed': False
+    },
+    '2.1.1.2.1': {
+        'name': 'Vollbetriebstunden jährlich',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.1.1.2.2': {
+        'name': 'Bruttostromerzeugung jährlich',
+        'formula': '2.1.1.2 * 2.1.1.2.1 / 1000',
+        'is_fixed': False
+    },
+    '2.1.1.2.3': {
+        'name': 'Energieertrag',
+        'formula': '2.1.1.2.2 * 1000 / 2.1.1',
+        'is_fixed': False
+    },
+    '2.2': {
+        'name': 'Offshore-Windstrom',
+        'formula': '2.2.1',
+        'is_fixed': True
+    },
+    '2.2.1': {
+        'name': 'Install. Offshore-Leistung Deutschland',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.2.1.1': {
+        'name': 'Vollbetriebstunden jährlich',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.2.1.2': {
+        'name': 'Bruttostromerzeugung Deutschland',
+        'formula': '2.2.1 * 2.2.1.1 / 1000',
+        'is_fixed': False
+    },
+    '2.2.1.2.1': {
+        'name': 'Einwohner Deutschland',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.2.1.2.2': {
+        'name': 'Energieverbraucher Deutschland 100%EE',
+        'formula': None,
+        'is_fixed': True
+    },
+    '2.2.1.2.3': {
+        'name': 'Bruttostromerz.Anteil Deutschland 100%EE',
+        'formula': '2.2.1.2 / 2.2.1.2.1 * 2.2.1.2.2',
+        'is_fixed': False
+    },
+    '3.': {
+        'name': 'Laufwasser',
+        'formula': '5.4.3.1 + 5.4.3.2 + 6.1.3.1 + 6.1.3.1.1 + 6.1.3.2 + 6.1.3.2.1 + 6.1.3.2.2 + 6.1.3.2.3 + 6.1.3.2.4 + 10.3.1 + 4.1.3.1 + 4.1.3.2 + 4.1.3.3 + 4.1.3.4 + 3.1 + 3.1.1 + 3.1.1.1 + 3.1.1.2 + 4.3.1 + 4.3.2 + 4.3.3 + 4.3.3.1 + 4.3.3.2 + 4.3.3.3 + 4.3.3.4 + 4.3.4 + 4.3.4.1 + 4.3.4.2 + 9.3.1.1 + 9.3.3 + 9.4.3.2 + 9.2.1.3.1 + 9.2.1.3.2 + 9.3.1 + 9.3.1.2 + 9.3.2 + 9.3.2.1 + 9.3.4 + 9.4.3.1 + 9.4.3.3 + 7.1.4.3.1 + 7.1.4.3.2 + 7.1.4.3.3 + 7.1.4.3.4',
+        'is_fixed': False
+    },
+    '3.1': {
+        'name': 'Bodenfläche Nds.',
+        'formula': None,
+        'is_fixed': True
+    },
+    '3.1.1': {
+        'name': 'Nutzanteil am techn. Potenzial',
+        'formula': None,
+        'is_fixed': True
+    },
+    '3.1.1.1': {
+        'name': 'Energieertrag (techn. Potenzial)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '3.1.1.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '3.1 * 3.1.1 / 100 * 3.1.1.1 / 1000',
+        'is_fixed': False
+    },
+    '4.': {
+        'name': 'Biogene Brennstoffe (fest)',
+        'formula': '5.4.1 + 5.4.1.1 + 5.4.2 + 5.4.2.1 + 5.4.2.2 + 5.4.2.3 + 5.4.2.4 + 5.4.3 + 5.4.3.1 + 5.4.3.2 + 5.4.4 + 5.4.4.1 + 5.4.4.2 + 10.4.1 + 10.4.1.1 + 10.4.1.2 + 10.4.1.3 + 10.4.2 + 10.4.3 + 4.4 + 4.4.1 + 4.4.2 + 4.1 + 4.1.1 + 4.1.1.1 + 4.1.1.1.1 + 4.1.1.1.1.1 + 4.1.1.1.1.2 + 4.1.2 + 4.1.2.1 + 4.1.2.1.1 + 4.1.2.1.2 + 4.1.3 + 4.1.3.1 + 4.1.3.2 + 4.1.3.3 + 4.1.3.4 + 4.3 + 4.3.1 + 4.3.2 + 4.3.3 + 4.3.3.1 + 4.3.3.2 + 4.3.3.3 + 4.3.3.4 + 4.3.4 + 4.3.4.1 + 4.3.4.2 + 4.2 + 4.2.1 + 4.2.1.1 + 4.2.1.1.1 + 4.2.1.1.2 + 4.2.1.1.2.1 + 4.2.1.1.2.2 + 4.2.1.1.2.3 + 4.2.1.1.2.4 + 9.4.3.2 + 9.2.1.4.1 + 9.2.1.4.2 + 9.4.1 + 9.4.2 + 9.4.3 + 9.4.3.1 + 9.4.3.3 + 7.1.4.1 + 7.1.4.2 + 7.1.4.3 + 7.1.4.3.1 + 7.1.4.3.2 + 7.1.4.3.3 + 7.1.4.3.4',
+        'is_fixed': False
+    },
+    '4.1': {
+        'name': 'Energieholz',
+        'formula': '5.4.1.1 + 10.4.1.1 + 10.4.1.2 + 10.4.1.3 + 4.1.1 + 4.1.2 + 4.1.3',
+        'is_fixed': False
+    },
+    '4.1.1': {
+        'name': 'Aus Forstwirtschaft',
+        'formula': '4.1.1.1',
+        'is_fixed': False
+    },
+    '4.1.1.1': {
+        'name': 'Nutzbare Forstfläche',
+        'formula': 'LandUse_LU_3.1',
+        'is_fixed': False
+    },
+    '4.1.1.1.1': {
+        'name': 'Energet. genutzter Anteil am Zuwachs',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.1.1.1.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.1.1.1.1.2': {
+        'name': 'Energieholzaufkommen',
+        'formula': '4.1.1.1 * 4.1.1.1.1 / 100 * 4.1.1.1.1.1 / 1000',
+        'is_fixed': False
+    },
+    '4.1.2': {
+        'name': 'Aus Ackerbau (KUP, Miscanthus usw.)',
+        'formula': '4.1.2.1',
+        'is_fixed': False
+    },
+    '4.1.2.1': {
+        'name': 'Anbaufläche',
+        'formula': 'LandUse_LU_2.2.5',
+        'is_fixed': False
+    },
+    '4.1.2.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.1.2.1.2': {
+        'name': 'Energieholzaufkommen',
+        'formula': '4.1.2.1 * 4.1.2.1.1 / 1000',
+        'is_fixed': False
+    },
+    '4.1.3': {
+        'name': 'Energieholzaufkommen gesamt',
+        'formula': '4.1.1.1.1.2 + 4.1.2.1.2',
+        'is_fixed': False
+    },
+    '4.1.3.1': {
+        'name': 'davon für Gebäudewärme',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.1.3.2': {
+        'name': 'davon für Prozesswärme',
+        'formula': '100 - 4.1.3.1 - 4.1.3.3 - 4.1.3.4',
+        'is_fixed': False
+    },
+    '4.1.3.3': {
+        'name': 'davon für Verstromung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.1.3.4': {
+        'name': 'davon für Wärmenetze GW',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.2': {
+        'name': 'Stroh aus Getreideanbau',
+        'formula': '5.4.2.1 + 5.4.2.2 + 5.4.2.3 + 5.4.2.4 + 4.2.1',
+        'is_fixed': False
+    },
+    '4.2.1': {
+        'name': 'Getreide-Anbaufläche',
+        'formula': 'LandUse_LU_2.2.1',
+        'is_fixed': False
+    },
+    '4.2.1.1': {
+        'name': 'Energet. genutzter Teil am Strohanfall',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.2.1.1.1': {
+        'name': 'Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.2.1.1.2': {
+        'name': 'Strohbrennstoff-Aufkommen',
+        'formula': '4.2.1 * 4.2.1.1 / 100 * 4.2.1.1.1 / 1000',
+        'is_fixed': False
+    },
+    '4.2.1.1.2.1': {
+        'name': 'davon für Gebäudewärme',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.2.1.1.2.2': {
+        'name': 'davon für Prozesswärme',
+        'formula': '100 - 4.2.1.1.2.1 - 4.2.1.1.2.3 - 4.2.1.1.2.4',
+        'is_fixed': False
+    },
+    '4.2.1.1.2.3': {
+        'name': 'davon für Verstromung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.2.1.1.2.4': {
+        'name': 'davon für Wärmenetze GW',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.3': {
+        'name': 'Brennstoffaufkommen (fest) NAWARO gesamt',
+        'formula': '4.1.3 + 4.2.1.1.2',
+        'is_fixed': False
+    },
+    '4.3.1': {
+        'name': 'davon Einsatz für Gebäudewärme',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.3.2': {
+        'name': 'davon Einsatz für Prozesswärme',
+        'formula': '4.3 * 4.1.3.2 / 100',
+        'is_fixed': False
+    },
+    '4.3.3': {
+        'name': 'davon Einsatz für Verstromung',
+        'formula': '4.3 * 4.1.3.3 / 100',
+        'is_fixed': False
+    },
+    '4.3.3.1': {
+        'name': 'Nutzungsgrad Kraftwerk',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.3.3.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '4.3.3 * 4.3.3.1 / 100',
+        'is_fixed': False
+    },
+    '4.3.3.3': {
+        'name': 'Nutzungsgrad KWK-Abwärme effektiv',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.3.3.4': {
+        'name': 'Wärmenetze GW (Endenergie)',
+        'formula': '4.3.3.2 * 4.3.3.3 / 4.3.3.1',
+        'is_fixed': False
+    },
+    '4.3.4': {
+        'name': 'davon Einsatz für Heizwerke/Wärmenetze',
+        'formula': '4.3 * 4.1.3.4 / 100',
+        'is_fixed': False
+    },
+    '4.3.4.1': {
+        'name': 'Nutzungsgrad Heizwerk/Wärmenetz',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.3.4.2': {
+        'name': 'Wärmenetze GW (Endenergie)',
+        'formula': '4.3.4 * 4.3.4.1 / 100',
+        'is_fixed': False
+    },
+    '4.4': {
+        'name': 'Biogener Anteil der Abfälle (fest)',
+        'formula': '4.4.1 + 4.4.2',
+        'is_fixed': False
+    },
+    '4.4.1': {
+        'name': 'Bruttostromerzeugung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '4.4.2': {
+        'name': 'Wärmenetze GW (Endenergie)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5': {
+        'name': '',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.1': {
+        'name': 'Anbaufläche Energiepflanzen für Biogas',
+        'formula': 'LandUse_LU_2.2.2',
+        'is_fixed': False
+    },
+    '5.1.1': {
+        'name': 'Biogas – Methanertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.1.2': {
+        'name': 'Biogas aus Energiepflanzen-Anbau',
+        'formula': '5.1 * 5.1.1 / 1000',
+        'is_fixed': False
+    },
+    '5.2': {
+        'name': 'Biogas aus Abfall-/Reststoffverwertung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.3': {
+        'name': 'Biogas aus Kläranlagen und Deponien',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4': {
+        'name': 'Biogasaufkommen insgesamt',
+        'formula': '5.1.2 + 5.2 + 5.3',
+        'is_fixed': False
+    },
+    '5.4.1': {
+        'name': 'davon Einsatz für Prozesswärme',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.1.1': {
+        'name': 'Biogas für Prozesswärme',
+        'formula': '5.4 * 5.4.1 / 100',
+        'is_fixed': False
+    },
+    '5.4.2': {
+        'name': 'davon für Verstromung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.2.1': {
+        'name': 'Nutzungsgrad Kraftwerk',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.2.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '5.4 * 5.4.2 / 100 * 5.4.2.1 / 100',
+        'is_fixed': False
+    },
+    '5.4.2.3': {
+        'name': 'Nutzungsgrad KWK-Abwärme effektiv',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.2.4': {
+        'name': 'Gebäudewärme (Endenergie)',
+        'formula': '5.4 * 5.4.2% * 5.4.2.3%',
+        'is_fixed': False
+    },
+    '5.4.3': {
+        'name': 'davon Biomethan für mobile Anwendungen',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.3.1': {
+        'name': 'Nutzungsgrad Kraftstoffbereitstellung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.3.2': {
+        'name': 'Biokraftstoff (gasförmig)',
+        'formula': '5.4 * 5.4.3 / 100 * 5.4.3.1 / 100',
+        'is_fixed': False
+    },
+    '5.4.4': {
+        'name': 'davon Flüssigkraftstoff für mobile Anwendungen',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.4.1': {
+        'name': 'Nutzungsgrad Kraftstofferzeugung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '5.4.4.2': {
+        'name': 'Biokraftstoff (flüssig)',
+        'formula': '5.4 * 5.4.4% * 5.4.4.1%',
+        'is_fixed': False
+    },
+    '6': {
+        'name': 'Biogene Brennstoffe (flüssig)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1': {
+        'name': 'Biodiesel (inkl. Pflanzenöl)',
+        'formula': '6.1.1 + 6.1.2 + 6.1.3 + 10.6.1.1 + 10.6.1.2 + 10.6.1.3',
+        'is_fixed': True
+    },
+    '6.1.1': {
+        'name': 'Anbaufläche Ölpflanzen für Biodiesel',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.1.1': {
+        'name': 'Biodiesel – Energieertrag',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.1.2': {
+        'name': 'Biodiesel aus eigenem Anbau',
+        'formula': '6.1.1 * 6.1.1.1 / 1000',
+        'is_fixed': False
+    },
+    '6.1.2': {
+        'name': 'Biodiesel aus Import (+) / Export (-)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.3': {
+        'name': 'Biodiesel Gesamtaufkommen',
+        'formula': '6.1.1.2 + 6.1.2',
+        'is_fixed': False
+    },
+    '6.1.3.1': {
+        'name': 'davon Einsatz für mobile Anwendungen',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.3.1.1': {
+        'name': 'Biokraftstoff (flüssig)',
+        'formula': '6.1.3 * 6.1.3.1 / 100',
+        'is_fixed': False
+    },
+    '6.1.3.2': {
+        'name': 'davon Einsatz für Verstromung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.3.2.1': {
+        'name': 'Nutzungsgrad Blockheizkraftwerk',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.3.2.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '6.1.3 * 6.1.3.2 * 6.1.3.2.1 / 10000',
+        'is_fixed': False
+    },
+    '6.1.3.2.3': {
+        'name': 'Nutzungsgrad KWK-Abwärme effektiv',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.1.3.2.4': {
+        'name': 'Gebäudewärme (Endenergie)',
+        'formula': '6.1.3 * 6.1.3.2% * 6.1.3.2.3%',
+        'is_fixed': False
+    },
+    '6.2': {
+        'name': 'Bioethanol',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.2.1': {
+        'name': 'Anbaufläche Energiepflanzen für Bioethanol',
+        'formula': 'LandUse_LU_2.2.4',
+        'is_fixed': False
+    },
+    '6.2.1.1': {
+        'name': 'Bioethanol – Energieertrag (brutto)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.2.1.2': {
+        'name': 'Bioethanol aus eigenem Anbau',
+        'formula': '6.2.1 * 6.2.1.1 / 1000',
+        'is_fixed': False
+    },
+    '6.2.2': {
+        'name': 'Bioethanol aus Import (+) / Export (-)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '6.2.3': {
+        'name': 'Bioethanol gesamt – Mobile Anwendungen',
+        'formula': '6.2.1.2 + 6.2.2',
+        'is_fixed': False
+    },
+    '7': {
+        'name': 'Umgebungswärme (Wärmepumpe)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1': {
+        'name': 'Wärmepumpen-Antriebsstromaufnahme',
+        'formula': 'VerbrauchData_2.9.2',
+        'is_fixed': False
+    },
+    '7.1.1': {
+        'name': 'davon Anlagen mit Luftkopplung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1.2': {
+        'name': 'WP-Luft – Antriebsstromaufnahme',
+        'formula': '7.1 * 7.1.1 / 100',
+        'is_fixed': False
+    },
+    '7.1.2.1': {
+        'name': 'WP-Luft – Jahresarbeitszahl',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1.2.2': {
+        'name': 'Nutzwärme (inkl. Antriebsstrom)',
+        'formula': '7.1.2 * 7.1.2.1',
+        'is_fixed': False
+    },
+    '7.1.2.3': {
+        'name': 'davon Wärmgewinn aus der Luft',
+        'formula': '7.1.2.2 - 7.1.2',
+        'is_fixed': False
+    },
+    '7.1.3': {
+        'name': 'davon Anlagen mit Erdreich-/Wasserkopplung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1.4.1': {
+        'name': 'WP-Erdr./Wasser – Jahresarbeitszahl',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1.4.2': {
+        'name': 'Nutzwärme (inkl. Antriebsstrom)',
+        'formula': 'VerbrauchData_7.1.4 * 7.1.4.1',
+        'is_fixed': False
+    },
+    '7.1.4.3': {
+        'name': 'davon Wärmgewinn Erdreich/Grundwasser',
+        'formula': '7.1.4.2 - VerbrauchData_7.1.4',
+        'is_fixed': False
+    },
+    '7.1.4.3.1': {
+        'name': 'Wärmeertrag Erdreich/Grundwasser',
+        'formula': None,
+        'is_fixed': True
+    },
+    '7.1.4.3.2': {
+        'name': 'Beanspruchte Entzugsfläche',
+        'formula': '7.1.4.3 * 1000 / 7.1.4.3.1',
+        'is_fixed': False
+    },
+    '7.1.4.3.3': {
+        'name': 'Gebäude- & Freifläche (Siedlung)',
+        'formula': 'LandUse_LU_1',
+        'is_fixed': False
+    },
+    '7.1.4.3.4': {
+        'name': 'Anteil beanspruchter Siedlungsfläche',
+        'formula': None,
+        'is_fixed': True
+    },
+    '8': {
+        'name': 'Tiefengeothermie',
+        'formula': None,
+        'is_fixed': True
+    },
+    '8.1': {
+        'name': 'Netzanschlussleistung (elektrisch)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '8.1.1': {
+        'name': 'Stromerzeugung – Vollbetriebsstunden',
+        'formula': None,
+        'is_fixed': True
+    },
+    '8.1.2': {
+        'name': 'Bruttostromerzeugung',
+        'formula': '8.1 * 8.1.1 / 1000',
+        'is_fixed': False
+    },
+    '8.2': {
+        'name': 'Gebäudewärmebereitstellung (Endenergie)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9': {
+        'name': 'Stromwandlung / Stromspeicherung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.1': {
+        'name': 'Bruttostromerzeugung aus Erneuerbaren Energien gesamt (inkl. Abregelung)',
+        'formula': '9.1.1 + 9.1.2 + 9.1.3 + 9.1.4',
+        'is_fixed': False
+    },
+    '9.1.1': {
+        'name': 'aus Windenergie',
+        'formula': '2.2.1.2.3 + 2.1.1.2.2',
+        'is_fixed': False
+    },
+    '9.1.2': {
+        'name': 'aus Solarenergie (Photovoltaik)',
+        'formula': '1.1.2.1.2 + 1.2.1.2',
+        'is_fixed': False
+    },
+    '9.1.3': {
+        'name': 'aus Wasserkraft + Tiefengeothermie',
+        'formula': '3.1.1.2 + 8.1.2',
+        'is_fixed': False
+    },
+    '9.1.4': {
+        'name': 'aus Biobrennstoffen',
+        'formula': '4.3.3.2 + 4.4.1 + 5.4.2.2 + 6.1.3.2.2',
+        'is_fixed': False
+    },
+    '9.2': {
+        'name': 'Bruttostromerzeugung Erneuerbar (inkl. Abregelung)',
+        'formula': '9.1.1 + 9.1.2 + 9.1.3 + 9.1.4',
+        'is_fixed': False
+    },
+    '9.2.1': {
+        'name': 'Wasser-Elektrolyse (H₂ für Brennstoff, Kraftstoff- und Grundstoff-Synthese)',
+        'formula': '9.2.1.1 + 9.2.1.2 + 9.2.1.3 + 9.2.1.4 + 9.2.1.5',
+        'is_fixed': False
+    },
+    '9.2.1.1': {
+        'name': 'Wasserstoff als Brennstoff für PW',
+        'formula': '0',
+        'is_fixed': True
+    },
+    '9.2.1.1.1': {
+        'name': 'Wasserstoff (komprim.) f. FC-Traktion',
+        'formula': '0',
+        'is_fixed': False
+    },
+    '9.2.1.1.1.1': {
+        'name': 'Nutzungsgrad tankfähiger Wasserstoff',
+        'formula': '80',
+        'is_fixed': True
+    },
+    '9.2.1.1.2': {
+        'name': 'Wasserstoff für MA mit FC-Traktion',
+        'formula': '0',
+        'is_fixed': False
+    },
+    '9.2.1.2': {
+        'name': 'Kraftstoff (gasförm. Methan) für MA aus H₂',
+        'formula': 'IF(VerbrauchData_4.3.5 > (5.4.4.2 + 6.1.3.1.1 + 6.2.3); VerbrauchData_4.3.5 - (5.4.4.2 + 6.1.3.1.1 + 6.2.3); 0)',
+        'is_fixed': False
+    },
+    '9.2.1.2.1': {
+        'name': 'Nutzungsgrad Methansynthese',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.2.1.2.2': {
+        'name': 'Wasserstoff für Kraftstoffsynthese',
+        'formula': '9.2.1.2 * 9.2.1.2.1%',
+        'is_fixed': False
+    },
+    '9.2.1.3': {
+        'name': 'Kraftstoffe (flüssig) für MA aus H₂',
+        'formula': 'IF(VerbrauchData_4.3.5 > (5.4.4.2 + 6.1.3.1.1 + 6.2.3); VerbrauchData_4.3.5 - (5.4.4.2 + 6.1.3.1.1 + 6.2.3); 0)',
+        'is_fixed': False
+    },
+    '9.2.1.3.1': {
+        'name': 'Nutzungsgrad Kraftstofferzeugung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.2.1.3.2': {
+        'name': 'Wasserstoff für Kraftstoffsynthese',
+        'formula': '9.2.1.3 / 9.2.1.3.1%',
+        'is_fixed': False
+    },
+    '9.2.1.4': {
+        'name': 'Synth. Methan als Grundstoff',
+        'formula': 'VerbrauchData_7.1.4',
+        'is_fixed': False
+    },
+    '9.2.1.4.1': {
+        'name': 'Nutzungsgrad Methansynthese',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.2.1.4.2': {
+        'name': 'Wasserstoff für Grundstoffsynthese',
+        'formula': '9.2.1.4 * 100 / 9.2.1.4.1',
+        'is_fixed': False
+    },
+    '9.2.1.5': {
+        'name': 'Wasserstofferzeugung',
+        'formula': '9.2.1.1 + 9.2.1.1.2 + 9.2.1.2.2 + 9.2.1.3.2 + 9.2.1.4.2',
+        'is_fixed': False
+    },
+    '9.2.1.5.1': {
+        'name': 'Nutzungsgrad Wasserelektrolyse',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.2.1.5.2': {
+        'name': 'Stromeinsatz Wasserstofferzeugung',
+        'formula': '9.2.1.5 * 100 / 9.2.1.5.1',
+        'is_fixed': False
+    },
+    '9.2.1.5.2.1': {
+        'name': 'davon in der Zielregion',
+        'formula': '9.2.1.5.2 - 9.2.1.5.2.2',
+        'is_fixed': False
+    },
+    '9.2.1.5.2.2': {
+        'name': 'davon extern für Importwasserstoff',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.3': {
+        'name': 'Langzeitspeicherung Strom stofflich (saisonaler Ausgleich > 1 Tag)',
+        'formula': '9.3.3 + 9.3.1 + 9.3.2 + 9.3.4',
+        'is_fixed': False
+    },
+    '9.3.1': {
+        'name': 'Stromaufnahme (Überschussphasen)',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.3.1.1': {
+        'name': 'Nutzungsgrad Stromspeicherung',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.3.1.2': {
+        'name': 'Stromabgabe (Mangelphasen)',
+        'formula': '9.3.1 * 9.3.1.1 / 100',
+        'is_fixed': False
+    },
+    '9.3.2': {
+        'name': 'Nutzungsgrad KWK-Abwärme effektiv',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.3.2.1': {
+        'name': 'Gebäudewärme (Endenergie)',
+        'formula': '9.3.1 * 9.3.2 / 100',
+        'is_fixed': False
+    },
+    '9.3.3': {
+        'name': 'Erforderliche Speicherkapazität',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.3.4': {
+        'name': 'Abregelung von Wind-/Solarstrom',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.4': {
+        'name': 'Stromangebot aus Erneuerbaren Energien (EE)',
+        'formula': '9.4.1 + 9.4.2',
+        'is_fixed': False
+    },
+    '9.4.1': {
+        'name': 'Stromangebot aus eigenen Erneuerb. E.',
+        'formula': '9.2 - 9.2.1.5.2.1 - 9.3.1 + 9.3.1.2 - 9.3.4',
+        'is_fixed': False
+    },
+    '9.4.2': {
+        'name': 'Stromeinfuhr (Erneuerb.) aus dem Ausland',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.4.3': {
+        'name': 'Stromangebot aus Erneuerbaren E. (gesamt)',
+        'formula': '9.4.1 + 9.4.2',
+        'is_fixed': False
+    },
+    '9.4.3.1': {
+        'name': 'Übertragungsverluste Stromnetz',
+        'formula': None,
+        'is_fixed': True
+    },
+    '9.4.3.2': {
+        'name': 'inkl. Kurzzeitspeicher',
+        'formula': '9.4.3 * 9.4.3.1 / 100',
+        'is_fixed': False
+    },
+    '9.4.3.3': {
+        'name': 'Stromangebot Erneuerb. (Endenergie)',
+        'formula': '9.4.3 - 9.4.3.2',
+        'is_fixed': False
+    },
+}
+
+
+class RenewableCalculator:
+    """
+    Calculator for renewable energy values.
+    Now uses FormulaService to load formulas from database.
+    """
+    
+    def __init__(self):
+        self.evaluator = FormulaEvaluator()
+        self.formula_service = FormulaService(use_cache=True)
+        self.cache = {}
+    
+    def set_data_sources(self, landuse_data, verbrauch_data, renewable_data):
+        """
+        Set up lookup dictionaries from data sources.
+        
+        Args:
+            landuse_data: Dict of {code: {'status_ha': x, 'target_ha': y}}
+            verbrauch_data: Dict of {code: {'status': x, 'ziel': y}}
+            renewable_data: Dict of {code: {'status_value': x, 'target_value': y}}
+        """
+        # Clear cache when new data sources are set
+        self.cache = {}
+        
+        status_lookup = {}
+        target_lookup = {}
+        
+        # Add LandUse data with LandUse_ prefix to match formula references
+        # Strip LU_ prefix from codes since formulas use numeric codes (e.g., "1.1" not "LU_1.1")
+        for code, data in landuse_data.items():
+            # Convert LU_1.1 -> 1.1, LU_2.1 -> 2.1, etc.
+            clean_code = code.replace('LU_', '') if code.startswith('LU_') else code
+            landuse_key = f'LandUse_{clean_code}'
+            if data.get('status_ha') is not None:
+                status_lookup[landuse_key] = float(data['status_ha'])
+            if data.get('target_ha') is not None:
+                target_lookup[landuse_key] = float(data['target_ha'])
+        
+        # Add VerbrauchData with VerbrauchData_ prefix
+        for code, data in verbrauch_data.items():
+            verbrauch_key = f'VerbrauchData_{code}'
+            if data.get('status') is not None:
+                status_lookup[verbrauch_key] = float(data['status'])
+            if data.get('ziel') is not None:
+                target_lookup[verbrauch_key] = float(data['ziel'])
+        
+        # Add RenewableData with prefix to prevent conflicts with VerbrauchData
+        for code, data in renewable_data.items():
+            renewable_key = f'RenewableData_{code}'
+            if data.get('status_value') is not None:
+                status_lookup[renewable_key] = float(data['status_value'])
+            if data.get('target_value') is not None:
+                target_lookup[renewable_key] = float(data['target_value'])
+        
+        self.evaluator.set_lookups(status_lookup, target_lookup)
+    
+    def calculate(self, code):
+        """
+        Calculate status and target values for a renewable energy item.
+        Now loads formula from database via FormulaService.
+        
+        UPDATED: Now tries FormulaVariable mappings first (fully extensible approach).
+        Falls back to stored values for fixed entries.
+        
+        Args:
+            code: The renewable energy code
+            
+        Returns:
+            tuple: (status_value, target_value) or (None, None) if error
+        """
+        # Check cache first
+        if code in self.cache:
+            return self.cache[code]
+        
+        # NEW: Try evaluating with FormulaVariable mappings first
+        from simulator.formula_service import evaluate_with_mappings
+        status, target = evaluate_with_mappings(code, category='renewable')
+        
+        # If formula evaluation succeeded, cache and return
+        if status is not None or target is not None:
+            self.cache[code] = (status, target)
+            return status, target
+        
+        # For fixed values or when formula evaluation returns (None, None),
+        # fall back to stored values in RenewableData. This also covers formulas
+        # with no variables (fixed entries) where evaluate_with_mappings returns None.
+        try:
+            from simulator.models import RenewableData, Formula
+            formula_obj = Formula.objects.filter(key=code, category='renewable').first()
+            renewable = RenewableData.objects.get(code=code)
+            
+            # Use stored values for fixed entries or formulas without variables
+            if renewable.is_fixed or (formula_obj and not formula_obj.variables.exists()):
+                result = (renewable.status_value, renewable.target_value)
+                self.cache[code] = result
+                return result
+        except:
+            pass
+        
+        # If nothing worked, return None
+        self.cache[code] = (None, None)
+        return None, None
+    
+    def _is_simple_reference(self, formula):
+        """Check if formula is a simple code reference"""
+        return (
+            formula and
+            not any(op in formula for op in ['+', '-', '*', '/', '(', ')', 'IF']) and
+            ('.' in formula or formula.startswith('VerbrauchData_') or formula.startswith('LandUse_'))
+        )
+    
+    def _get_simple_reference_values(self, formula):
+        """Get values for simple code references"""
+        if formula.startswith('VerbrauchData_'):
+            # VerbrauchData is stored with prefix in lookup
+            lookup_key = formula
+        elif formula.startswith('LandUse_'):
+            # LandUse is stored with prefix in lookup  
+            lookup_key = formula
+        elif formula.startswith('Verbrauch_'):
+            code = formula.replace('Verbrauch_', '')
+            lookup_key = f'VerbrauchData_{code}'
+        elif formula.startswith('Renewable_'):
+            code = formula.replace('Renewable_', '')
+            lookup_key = f'RenewableData_{code}'
+        else:
+            # Standalone code - default to RenewableData namespace
+            lookup_key = f'RenewableData_{formula}'
+        
+        status = self.evaluator.status_lookup.get(lookup_key)
+        target = self.evaluator.target_lookup.get(lookup_key)
+        return (status, target)
+    
+    def get_formula(self, code):
+        """
+        Get the formula for a code from database.
+        """
+        formula_def = self.formula_service.get_formula(code, category='renewable')
+        if formula_def:
+            return formula_def.get('expression')
+        return None
+    
+    def is_fixed(self, code):
+        """
+        Check if a code is a fixed value from database.
+        """
+        formula_def = self.formula_service.get_formula(code, category='renewable')
+        if formula_def:
+            return formula_def.get('is_fixed', True)
+        return True

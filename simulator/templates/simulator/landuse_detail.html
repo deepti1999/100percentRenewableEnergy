@@ -1,0 +1,250 @@
+{% extends 'simulator/base.html' %}
+
+{% block title %}{{ landuse.name }} - Land Use Detail{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <!-- Breadcrumb -->
+        <nav aria-label="breadcrumb" class="mb-4">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'simulator:landuse_list' %}">All Data</a></li>
+                <li class="breadcrumb-item active">{{ landuse.code }}</li>
+            </ol>
+        </nav>
+
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="h2">
+                    <span class="badge bg-primary me-2">{{ landuse.code }}</span>
+                    {{ landuse.name }}
+                </h1>
+            </div>
+            <a href="{% url 'simulator:landuse_list' %}" class="btn btn-outline-secondary">
+                ← Back to List
+            </a>
+        </div>
+
+        <div class="row">
+            <!-- Status Information -->
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">📊 Current Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <h6 class="text-muted">Area (Hectares)</h6>
+                                {% if landuse.status_ha %}
+                                    <h3 class="text-primary">{{ landuse.status_ha|floatformat:0 }}</h3>
+                                    <small class="text-muted">hectares</small>
+                                {% else %}
+                                    <h3 class="text-muted">No data</h3>
+                                {% endif %}
+                            </div>
+                            <div class="col-6">
+                                <h6 class="text-muted">Percentage</h6>
+                                {% if landuse.status_percent %}
+                                    <h3 class="text-primary">{{ landuse.status_percent }}%</h3>
+                                    <small class="text-muted">of parent area</small>
+                                {% else %}
+                                    <h3 class="text-muted">No data</h3>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target Information -->
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">🎯 Target Goals</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <h6 class="text-muted">Target Area (Hectares)</h6>
+                                {% if landuse.target_ha %}
+                                    <h3 class="text-success">{{ landuse.target_ha|floatformat:0 }}</h3>
+                                    <small class="text-muted">hectares</small>
+                                {% else %}
+                                    <h3 class="text-muted">No target</h3>
+                                {% endif %}
+                            </div>
+                            <div class="col-6">
+                                <h6 class="text-muted">Target Percentage</h6>
+                                {% if landuse.target_percent %}
+                                    <h3 class="text-success">{{ landuse.target_percent }}%</h3>
+                                    <small class="text-muted">of parent area</small>
+                                {% else %}
+                                    <h3 class="text-muted">No target</h3>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Analysis -->
+        <div class="row">
+            <div class="col-md-8 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📈 Change Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if landuse.change_ratio %}
+                            <div class="row align-items-center">
+                                <div class="col-md-4">
+                                    <h6 class="text-muted">Change Ratio</h6>
+                                    <h2 class="{% if landuse.change_ratio > 1 %}text-success{% elif landuse.change_ratio < 1 %}text-danger{% else %}text-warning{% endif %}">
+                                        {{ landuse.change_ratio|floatformat:2 }}
+                                    </h2>
+                                </div>
+                                <div class="col-md-8">
+                                    {% if landuse.change_ratio > 1 %}
+                                        <div class="alert alert-success mb-0">
+                                            <strong>Growth Expected:</strong> Target is {{ landuse.change_ratio|floatformat:2 }}x the current status.
+                                        </div>
+                                    {% elif landuse.change_ratio < 1 %}
+                                        <div class="alert alert-warning mb-0">
+                                            <strong>Reduction Planned:</strong> Target is {{ landuse.change_ratio|floatformat:2 }}x the current status.
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-info mb-0">
+                                            <strong>Status Quo:</strong> Target matches current status.
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="text-center text-muted py-4">
+                                <h6>No change analysis available</h6>
+                                <p class="mb-0">Insufficient data to calculate change ratio.</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Source Information -->
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📚 Source</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6 class="text-muted">Data Source</h6>
+                        <p class="mb-0">
+                            <span class="badge bg-info">{{ landuse.quelle }}</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Information Table -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📋 Complete Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-borderless">
+                            <tbody>
+                                <tr>
+                                    <th scope="row" style="width: 200px;">Code</th>
+                                    <td><span class="badge bg-secondary">{{ landuse.code }}</span></td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Name</th>
+                                    <td><strong>{{ landuse.name }}</strong></td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Current Status (ha)</th>
+                                    <td>
+                                        {% if landuse.status_ha %}
+                                            {{ landuse.status_ha|floatformat:0 }} hectares
+                                        {% else %}
+                                            <span class="text-muted">No data</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Current Status (%)</th>
+                                    <td>
+                                        {% if landuse.status_percent %}
+                                            {{ landuse.status_percent }}% 
+                                            {% if landuse.parent %}
+                                                <small class="text-muted">(of {{ landuse.parent.name }})</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">No data / Root level</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Target (ha)</th>
+                                    <td>
+                                        {% if landuse.target_ha %}
+                                            {{ landuse.target_ha|floatformat:0 }} hectares
+                                        {% else %}
+                                            <span class="text-muted">No target set</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Target (%)</th>
+                                    <td>
+                                        {% if landuse.target_percent %}
+                                            {{ landuse.target_percent }}%
+                                            {% if landuse.parent %}
+                                                <small class="text-muted">(of {{ landuse.parent.name }})</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">No target set / Root level</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Parent Category</th>
+                                    <td>
+                                        {% if landuse.parent %}
+                                            <span class="badge bg-info">{{ landuse.parent.code }}</span> 
+                                            {{ landuse.parent.name }}
+                                        {% else %}
+                                            <span class="text-muted">Root level</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Change Ratio</th>
+                                    <td>
+                                        {% if landuse.change_ratio %}
+                                            <span class="{% if landuse.change_ratio > 1 %}text-success{% elif landuse.change_ratio < 1 %}text-danger{% else %}text-warning{% endif %}">
+                                                {{ landuse.change_ratio|floatformat:2 }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">Not calculated</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Source</th>
+                                    <td><span class="badge bg-info">{{ landuse.quelle }}</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

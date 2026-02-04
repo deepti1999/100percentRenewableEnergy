@@ -1,0 +1,533 @@
+{% extends 'simulator/base.html' %}
+{% load static %}
+
+{% block title %}Cockpit - Visual Energy Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .card {
+        border: none;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        transition: transform 0.2s;
+        border-radius: 12px;
+    }
+
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 25px;
+        margin-bottom: 25px;
+        border-radius: 12px;
+    }
+
+    .stat-value {
+        font-size: 2.8rem;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+
+    .stat-label {
+        font-size: 1rem;
+        opacity: 0.9;
+    }
+
+    .toggle-buttons {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        justify-content: center;
+    }
+
+    .toggle-btn {
+        padding: 12px 30px;
+        border: 2px solid #ddd;
+        background: white;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s;
+        font-weight: 600;
+        font-size: 1rem;
+    }
+
+    .toggle-btn.active {
+        background: linear-gradient(135deg, #3F51B5 0%, #303F9F 100%);
+        color: white;
+        border-color: #3F51B5;
+        transform: scale(1.05);
+    }
+
+    .toggle-btn:hover {
+        border-color: #3F51B5;
+        transform: translateY(-2px);
+    }
+
+    .chart-container {
+        position: relative;
+        height: 450px;
+        margin-bottom: 30px;
+        padding: 20px;
+    }
+
+    .section-header {
+        margin: 40px 0 25px 0;
+        padding-bottom: 15px;
+        border-bottom: 3px solid #3F51B5;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .section-header h3 {
+        margin: 0;
+        color: #3F51B5;
+        font-weight: bold;
+    }
+
+    .renewable-badge {
+        background: linear-gradient(135deg, #10B981 0%, #34D399 100%);
+        color: white;
+        padding: 8px 20px;
+        border-radius: 20px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+
+    .fossil-badge {
+        background: linear-gradient(135deg, #4B5563 0%, #1F2937 100%);
+        color: white;
+        padding: 8px 20px;
+        border-radius: 20px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 20px;
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .legend-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        margin-right: 8px;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 56px;
+        bottom: 0;
+        left: 0;
+        z-index: 100;
+        padding: 48px 0 0;
+        box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+    }
+
+    .sidebar .nav-link {
+        font-weight: 500;
+        color: #333;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin: 0.125rem 0.5rem;
+    }
+
+    .sidebar .nav-link:hover {
+        background-color: rgba(0, 0, 0, .075);
+    }
+
+    .sidebar .nav-link.active {
+        color: #3F51B5;
+        background-color: rgba(63, 81, 181, .1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar Navigation -->
+        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+            <div class="position-sticky pt-3">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Simulation Modules</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:user_manual' %}">
+                            <i class="fas fa-book me-2"></i>User Manual
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
+                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
+                            <i class="fas fa-map me-2"></i>Land Use Data
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:renewable_list' %}">
+                            <i class="fas fa-solar-panel me-2"></i>Renewable Energy
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
+                            <i class="fas fa-chart-line me-2"></i>Verbrauch
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{% url 'simulator:cockpit' %}">
+                            <i class="fas fa-cogs me-2"></i>Cockpit
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
+                            <i class="fas fa-bolt me-2"></i>Annual Electricity
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:bilanz' %}">
+                            <i class="fas fa-balance-scale me-2"></i>Bilanz
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+            <div
+                class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                <h1 class="h2">
+                    <i class="fas fa-chart-bar me-2"></i>Energie Cockpit - Visuelle Bilanz
+                </h1>
+                <div class="btn-toolbar mb-2 mb-md-0">
+                    <div class="btn-group me-2">
+                        <a href="{% url 'simulator:bilanz' %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-table me-1"></i>Tabellen Ansicht
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Toggle -->
+            <div class="toggle-buttons">
+                <button class="toggle-btn active" onclick="switchView('status')" id="statusToggle">
+                    <i class="fas fa-history me-2"></i>Status (Aktuell)
+                </button>
+                <button class="toggle-btn" onclick="switchView('ziel')" id="zielToggle">
+                    <i class="fas fa-bullseye me-2"></i>Ziel (2050)
+                </button>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="stat-card" style="background: linear-gradient(135deg, #3F51B5 0%, #5C6BC0 100%);">
+                        <div class="stat-label">Gesamt Endenergieverbrauch</div>
+                        <div class="stat-value" id="totalEnergy">-</div>
+                        <small>MWh/a</small>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card" style="background: linear-gradient(135deg, #10B981 0%, #059669 100%);">
+                        <div class="stat-label">Erneuerbarer Anteil</div>
+                        <div class="stat-value" id="renewablePercent">-</div>
+                        <small id="renewableAmount">-</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sector Comparison -->
+            <div class="section-header">
+                <h3><i class="fas fa-industry me-2"></i>Sektoren: Verbrauch vs. Erneuerbare</h3>
+            </div>
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="chart-container" style="height: 500px;">
+                        <canvas id="sectorComparisonChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Breakdown Charts -->
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="section-header">
+                        <h3><i class="fas fa-bolt me-2"></i>Strom</h3>
+                    </div>
+                    <div class="card mb-4 text-center">
+                        <div class="card-body">
+                            <div class="chart-container" style="height: 300px;">
+                                <canvas id="stromChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="section-header">
+                        <h3><i class="fas fa-fire me-2"></i>Brennstoffe</h3>
+                    </div>
+                    <div class="card mb-4 text-center">
+                        <div class="card-body">
+                            <div class="chart-container" style="height: 300px;">
+                                <canvas id="brennstoffeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="section-header">
+                        <h3><i class="fas fa-temperature-high me-2"></i>Wärme</h3>
+                    </div>
+                    <div class="card mb-4 text-center">
+                        <div class="card-body">
+                            <div class="chart-container" style="height: 300px;">
+                                <canvas id="waermeChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fuel Details -->
+            <div class="section-header">
+                <h3><i class="fas fa-gas-pump me-2"></i>Brennstoff-Aufteilung</h3>
+            </div>
+            <div class="row mb-5">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title text-center">Gasanteil</h5>
+                            <div class="chart-container" style="height: 250px;">
+                                <canvas id="gasChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title text-center">Flüssig & Fest</h5>
+                            <div class="chart-container" style="height: 250px;">
+                                <canvas id="liquidSolidChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const bilanzData = {
+        status: {
+            gesamt_total: {{ verbrauch_endenergie_gesamt|default:0 }},
+            gesamt_klik: {{ verbrauch_endenergie_klik|default:0 }},
+            gesamt_gebaeudewaerme: {{ verbrauch_endenergie_gebaeudewaerme|default:0 }},
+            gesamt_prozesswaerme: {{ verbrauch_endenergie_prozesswaerme|default:0 }},
+            gesamt_mobile: {{ verbrauch_endenergie_mobile|default:0 }},
+            strom_renewable: {{ strom_renewable|default:0 }},
+            strom_fossil: {{ strom_fossil|default:0 }},
+            brennstoffe_renewable: {{ brennstoffe_renewable|default:0 }},
+            brennstoffe_fossil: {{ brennstoffe_fossil|default:0 }},
+            brennstoffe_gaseous: {{ brennstoffe_gaseous|default:0 }},
+            brennstoffe_liquid: {{ brennstoffe_liquid|default:0 }},
+            brennstoffe_solid: {{ brennstoffe_solid|default:0 }},
+            waerme_renewable: {{ waerme_renewable|default:0 }},
+            waerme_fossil: {{ waerme_fossil|default:0 }},
+            renewable_klik: {{ renewable_klik|default:0 }},
+            renewable_gebaeudewaerme: {{ renewable_gebaeudewaerme|default:0 }},
+            renewable_prozesswaerme: {{ renewable_prozesswaerme|default:0 }},
+            renewable_mobile: {{ renewable_mobile|default:0 }}
+        },
+        ziel: {
+            gesamt_total: {{ verbrauch_endenergie_gesamt_ziel|default:0 }},
+            gesamt_klik: {{ verbrauch_endenergie_klik_ziel|default:0 }},
+            gesamt_gebaeudewaerme: {{ verbrauch_endenergie_gebaeudewaerme_ziel|default:0 }},
+            gesamt_prozesswaerme: {{ verbrauch_endenergie_prozesswaerme_ziel|default:0 }},
+            gesamt_mobile: {{ verbrauch_endenergie_mobile_ziel|default:0 }},
+            strom_renewable: {{ strom_renewable_ziel|default:0 }},
+            strom_fossil: {{ strom_fossil_ziel|default:0 }},
+            brennstoffe_renewable: {{ brennstoffe_renewable_ziel|default:0 }},
+            brennstoffe_fossil: {{ brennstoffe_fossil_ziel|default:0 }},
+            brennstoffe_gaseous: {{ brennstoffe_gaseous_ziel|default:0 }},
+            brennstoffe_liquid: {{ brennstoffe_liquid_ziel|default:0 }},
+            brennstoffe_solid: {{ brennstoffe_solid_ziel|default:0 }},
+            waerme_renewable: {{ waerme_renewable_ziel|default:0 }},
+            waerme_fossil: {{ waerme_fossil_ziel|default:0 }},
+            renewable_klik: {{ renewable_klik_ziel|default:0 }},
+            renewable_gebaeudewaerme: {{ renewable_gebaeudewaerme_ziel|default:0 }},
+            renewable_prozesswaerme: {{ renewable_prozesswaerme_ziel|default:0 }},
+            renewable_mobile: {{ renewable_mobile_ziel|default:0 }}
+        }
+    };
+
+    let currentView = 'status';
+    let charts = {};
+
+    const colors = {
+        demand: '#3F51B5',
+        renewable: '#10B981',
+        fossil: '#4B5563',
+        gaseous: '#F59E0B',
+        liquid: '#EF4444',
+        solid: '#8B4513'
+    };
+
+    const chartConfig = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: { font: { size: 12, weight: '600' }, usePointStyle: true, padding: 15 }
+            },
+            tooltip: {
+                backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                padding: 10,
+                callbacks: {
+                    label: function (context) {
+                        const val = context.parsed.y || context.parsed.x || 0;
+                        return context.dataset.label + ': ' + val.toLocaleString('de-DE') + ' MWh/a';
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: {
+                    font: { size: 11 },
+                    callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v
+                }
+            },
+            x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+        }
+    };
+
+    function initCharts() {
+        charts.sectorComparison = new Chart(document.getElementById('sectorComparisonChart'), {
+            type: 'bar',
+            data: {
+                labels: ['KLIK', 'Gebäudewärme', 'Prozesswärme', 'Mobile Anwendungen'],
+                datasets: [
+                    { label: 'Verbrauch (Demand)', data: [], backgroundColor: colors.demand, borderRadius: 8, barPercentage: 0.8, categoryPercentage: 0.8 },
+                    { label: 'Erneuerbare (Renewable)', data: [], backgroundColor: colors.renewable, borderRadius: 8, barPercentage: 0.8, categoryPercentage: 0.8 }
+                ]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: chartConfig.plugins.legend,
+                    tooltip: {
+                        ...chartConfig.plugins.tooltip,
+                        callbacks: { label: c => c.dataset.label + ': ' + c.parsed.x.toLocaleString('de-DE') + ' MWh/a' }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        ticks: {
+                            font: { size: 11 },
+                            stepSize: 25000,
+                            callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v
+                        },
+                        title: { display: true, text: 'MWh/a', font: { weight: 'bold' } }
+                    },
+                    y: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
+                }
+            }
+        });
+
+        const barChart = (id, labelRenew, labelFossil) => new Chart(document.getElementById(id), {
+            type: 'bar',
+            data: {
+                labels: [id.charAt(0).toUpperCase() + id.slice(1)],
+                datasets: [
+                    { label: labelRenew, data: [], backgroundColor: colors.renewable, borderRadius: 8 },
+                    { label: labelFossil, data: [], backgroundColor: colors.fossil, borderRadius: 8 }
+                ]
+            },
+            options: chartConfig
+        });
+
+        charts.strom = barChart('stromChart', 'Erneuerbar', 'Fossil');
+        charts.brennstoffe = barChart('brennstoffeChart', 'Erneuerbar', 'Fossil');
+        charts.waerme = barChart('waermeChart', 'Erneuerbar', 'Fossil');
+
+        charts.gas = new Chart(document.getElementById('gasChart'), {
+            type: 'doughnut',
+            data: { labels: ['Gasförmig', 'Andere'], datasets: [{ data: [], backgroundColor: [colors.gaseous, '#E0E0E0'], borderWidth: 0 }] },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+
+        charts.liquidSolid = new Chart(document.getElementById('liquidSolidChart'), {
+            type: 'doughnut',
+            data: { labels: ['Flüssig', 'Fest'], datasets: [{ data: [], backgroundColor: [colors.liquid, colors.solid], borderWidth: 0 }] },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+
+        updateCharts();
+    }
+
+    function updateCharts() {
+        const d = bilanzData[currentView];
+        document.getElementById('totalEnergy').textContent = d.gesamt_total.toLocaleString('de-DE');
+        const ren = d.strom_renewable + d.brennstoffe_renewable + d.waerme_renewable;
+        document.getElementById('renewablePercent').textContent = d.gesamt_total > 0 ? ((ren / d.gesamt_total) * 100).toFixed(1) + '%' : '0%';
+        document.getElementById('renewableAmount').textContent = ren.toLocaleString('de-DE') + ' MWh/a erneuerbar';
+
+        charts.sectorComparison.data.datasets[0].data = [d.gesamt_klik, d.gesamt_gebaeudewaerme, d.gesamt_prozesswaerme, d.gesamt_mobile];
+        charts.sectorComparison.data.datasets[1].data = [d.renewable_klik, d.renewable_gebaeudewaerme, d.renewable_prozesswaerme, d.renewable_mobile];
+        charts.sectorComparison.update();
+
+        charts.strom.data.datasets[0].data = [d.strom_renewable];
+        charts.strom.data.datasets[1].data = [d.strom_fossil];
+        charts.strom.update();
+
+        charts.brennstoffe.data.datasets[0].data = [d.brennstoffe_renewable];
+        charts.brennstoffe.data.datasets[1].data = [d.brennstoffe_fossil];
+        charts.brennstoffe.update();
+
+        charts.waerme.data.datasets[0].data = [d.waerme_renewable];
+        charts.waerme.data.datasets[1].data = [d.waerme_fossil];
+        charts.waerme.update();
+
+        const fuelTotal = d.brennstoffe_gaseous + d.brennstoffe_liquid + d.brennstoffe_solid;
+        charts.gas.data.datasets[0].data = [d.brennstoffe_gaseous, fuelTotal - d.brennstoffe_gaseous];
+        charts.gas.update();
+
+        charts.liquidSolid.data.datasets[0].data = [d.brennstoffe_liquid, d.brennstoffe_solid];
+        charts.liquidSolid.update();
+    }
+
+    function switchView(v) {
+        currentView = v;
+        document.getElementById('statusToggle').classList.toggle('active', v === 'status');
+        document.getElementById('zielToggle').classList.toggle('active', v === 'ziel');
+        updateCharts();
+    }
+
+    document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+{% endblock %}

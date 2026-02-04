@@ -1,0 +1,21 @@
+Code,Parameter,Type,Fixed Values (Status/Target)
+6,Biogene Brennstoffe (flüssig),,
+6.1,Biodiesel (inkl. Pflanzenöl),,
+6.1.1,Anbaufläche Ölpflanzen für Biodiesel,,
+6.1.1.1,Biodiesel – Energieertrag,Fixed,17.8 / 14.2
+6.1.1.2,Biodiesel aus eigenem Anbau,Calculated,
+6.1.2,Biodiesel aus Import (+) / Export (-),Input,
+6.1.3,Biodiesel Gesamtaufkommen,Calculated,
+6.1.3.1,davon Einsatz für mobile Anwendungen,Fixed,99.1% / 100.0%
+6.1.3.1.1,Biokraftstoff (flüssig),Calculated,
+6.1.3.2,davon Einsatz für Verstromung,Fixed,0.9% / 0.0%
+6.1.3.2.1,Nutzungsgrad Blockheizkraftwerk,Fixed,39.0% / 39.0%
+6.1.3.2.2,Bruttostromerzeugung,Calculated,
+6.1.3.2.3,Nutzungsgrad KWK-Abwärme effektiv,Fixed,50.0% / 50.0%
+6.1.3.2.4,Gebäudewärme (Endenergie),Calculated,
+6.2,Bioethanol,,
+6.2.1,Anbaufläche Energiepflanzen für Bioethanol,,
+6.2.1.1,Bioethanol – Energieertrag (brutto),Fixed,17.1 / 13.7
+6.2.1.2,Bioethanol aus eigenem Anbau,Calculated,
+6.2.2,Bioethanol aus Import (+) / Export (-),Input,
+6.2.3,Bioethanol gesamt – Mobile Anwendungen,Calculated,

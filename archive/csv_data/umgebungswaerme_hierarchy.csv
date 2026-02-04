@@ -1,0 +1,17 @@
+Parameter,Unit,Status,Ziel
+7 Umgebungswärme (Wärmepumpe),,,
+7.1 Wärmepumpen-Antriebsstromaufnahme,GWh/a,,
+7.1.1 davon Anlagen mit Luftkopplung,%,"71,2","92,2"
+7.1.2 WP-Luft – Antriebsstromaufnahme,GWh/a,,
+7.1.2.1 WP-Luft – Jahresarbeitszahl,,"3,2","4,2"
+7.1.2.2 Nutzwärme (inkl. Antriebsstrom),GWh/a,,
+7.1.2.3 davon Wärmgewinn aus der Luft,GWh/a,,
+7.1.3 davon Anlagen mit Erdreich-/Wasserkopplung,%,"28,8","7,8"
+7.1.4 WP-Erdr./Wasser – Antriebsstromaufnahme,GWh/a,,
+7.1.4.1 WP-Erdr./Wasser – Jahresarbeitszahl,,"3,8","4,9"
+7.1.4.2 Nutzwärme (inkl. Antriebsstrom),GWh/a,,
+7.1.4.3 davon Wärmgewinn Erdreich/Grundwasser,GWh/a,,
+7.1.4.3.1 Wärmeertrag Erdreich/Grundwasser,MWh/ha/a,1.000,1.000
+7.1.4.3.2 Beanspruchte Entzugsfläche,ha,,
+7.1.4.3.3 Gebäude- & Freifläche (Siedlung),ha,,
+7.1.4.3.4 Anteil beanspruchter Siedlungsfläche,%,"0,241","1,1"

@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+<li>
+    <a href="recalculate-all/" class="button"
+        style="background: #28a745; color: white; font-weight: bold; border: none; margin-right: 10px; padding: 10px 15px; border-radius: 4px; text-decoration: none; display: inline-block;">
+        🔄 RECALCULATE ALL WS DATA
+    </a>
+</li>
+{{ block.super }}
+{% endblock %}
