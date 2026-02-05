@@ -2,82 +2,65 @@
   "model_info": {
     "pypsa_version": "0.32.2",
     "snapshots": 365,
+    "snapshot_weighting_hours": 24,
     "solver": "highs",
-    "status": "optimal"
+    "status": "optimal",
+    "model_type": "multi-component (elec + H2 buses)"
   },
   "inputs": {
     "E_electricity_GWh": 1003863.64,
     "E_hydrogen_GWh": 385933.329,
-    "loss_rate": 0.092,
-    "E_total_GWh": 1530613.401982379,
+    "loss_rate": 0.0,
+    "E_total_GWh": 1389796.969,
     "E_wind_GWh": 706236.566,
     "E_water_geo_GWh": 50000.0,
     "E_bio_GWh": 30000.0,
     "solar_yield_MWh_per_ha": 1235
   },
   "results": {
-    "solar_capacity_GWh": 1015763.5428319846,
-    "solar_capacity_MW": 1015763542.8319846,
-    "solar_energy_GWh": 1015763.5428320679,
-    "solar_land_ha": 822480.6014834559,
-    "solar_land_km2": 8224.80601483456,
-    "storage_power_GWh": 4923.218133257998,
-    "storage_energy_GWh": 984643.6266515995,
-    "storage_roundtrip_efficiency": 0.38025,
-    "curtailment_GWh": 437897.06631680834,
-    "curtailment_percent": 24.300612645391013,
-    "soc_day1_GWh": 116517.16771532813,
-    "soc_day365_GWh": 115840.59717143165,
-    "total_generation_GWh": 1802000.1088320804,
-    "total_load_GWh": 1530613.4019823787
+    "solar_capacity_MW": 6961458.591985825,
+    "solar_energy_GWh": 821922.5251453238,
+    "solar_land_ha": 665524.3118585618,
+    "solar_land_km2": 6655.2431185856185,
+    "battery_power_MW": 50000.0,
+    "battery_energy_GWh": 200.0,
+    "electrolyzer_MW": 68000.0,
+    "fuel_cell_MW": -0.0,
+    "h2_storage_TWh": 200.0,
+    "curtailment_GWh": 8.602302525559935e-07,
+    "curtailment_percent": 5.377084667339966e-11,
+    "battery_soc_day1_MWh": -0.0,
+    "battery_soc_day365_MWh": 200000.0,
+    "h2_soc_day1_TWh": 67.56359839839337,
+    "h2_soc_day365_TWh": 68.80713432341257,
+    "total_generation_GWh": 1599807.899215297,
+    "electricity_load_GWh": 1003863.6400000001,
+    "hydrogen_load_GWh": 385933.3290000001
   },
-  "sensitivity_efficiency": [
+  "sensitivity_electrolyzer_cap": [
     {
-      "case": "A: Battery (Li-ion)",
-      "eta_roundtrip": 0.9025,
-      "solar_land_ha": 621302.7864694862,
-      "storage_energy_GWh": 870407.7131298454,
-      "curtailment_percent": 15.139632470834066
+      "case": "80 GW electrolyzer (baseline)",
+      "electrolyzer_cap_MW": 80000,
+      "solar_capacity_MW": 4439959.207864189,
+      "solar_land_ha": 663264.5494557725,
+      "h2_storage_TWh": 200.0,
+      "curtailment_percent": 90.6572963445034
     },
     {
-      "case": "B: Pumped Hydro",
-      "eta_roundtrip": 0.6400000000000001,
-      "solar_land_ha": 690894.386475204,
-      "storage_energy_GWh": 866001.7099432321,
-      "curtailment_percent": 18.447073997410026
+      "case": "100 GW electrolyzer",
+      "electrolyzer_cap_MW": 100000,
+      "solar_capacity_MW": 4439959.207864189,
+      "solar_land_ha": 659776.4191952697,
+      "h2_storage_TWh": 200.0,
+      "curtailment_percent": 90.65992485150736
     },
     {
-      "case": "C: Hydrogen (baseline)",
-      "eta_roundtrip": 0.38025,
-      "solar_land_ha": 822480.6014834559,
-      "storage_energy_GWh": 984643.6266515995,
-      "curtailment_percent": 24.300612645391013
-    }
-  ],
-  "sensitivity_max_hours": [
-    {
-      "max_hours": 50,
-      "solar_land_ha": 822480.6014834559,
-      "storage_energy_GWh": 246160.90666289988,
-      "curtailment_percent": 24.300612645391013
-    },
-    {
-      "max_hours": 100,
-      "solar_land_ha": 822480.6014834559,
-      "storage_energy_GWh": 492321.81332579977,
-      "curtailment_percent": 24.300612645391013
-    },
-    {
-      "max_hours": 200,
-      "solar_land_ha": 822480.6014834559,
-      "storage_energy_GWh": 984643.6266515995,
-      "curtailment_percent": 24.300612645391013
-    },
-    {
-      "max_hours": 500,
-      "solar_land_ha": 822480.6014834559,
-      "storage_energy_GWh": 2461609.0666289986,
-      "curtailment_percent": 24.300612645391013
+      "case": "150 GW electrolyzer (relaxed)",
+      "electrolyzer_cap_MW": 150000,
+      "solar_capacity_MW": 4439959.207864189,
+      "solar_land_ha": 659776.4191952697,
+      "h2_storage_TWh": 200.0,
+      "curtailment_percent": 90.65992485150736
     }
   ]
 }
