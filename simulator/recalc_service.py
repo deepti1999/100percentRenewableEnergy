@@ -218,33 +218,32 @@ def unified_recalc_all() -> Dict[str, Any]:
     
     Order (CRITICAL!):
     1. Recalculate INPUT renewables (9.1.x, 9.2.x, 10.x) - EXCLUDING 9.3.1, 9.3.4
-    2. Recalculate WS data (uses input renewable values)
+    2. Update 9.3.1 and 9.3.4 from WS 365-day calculation (NOT old WSData!)
     3. Recalculate ALL renewables (so 10.1 includes stored 9.3.1, 9.3.4 values)
     
+    NOTE: WSData (366 rows) is NO LONGER recalculated here.
+    The WS 365 service uses its own calculation logic directly from Renewable inputs.
+    
     This breaks the circular dependency because:
-    - Step 1 provides inputs to WS
-    - Step 2 calculates WS
+    - Step 1 provides inputs to WS 365
+    - Step 2 calculates WS 365 and updates 9.3.1/9.3.4 in DB
     - Step 3 recalculates totals (10.1) to include stored 9.3.x values
     
     After this, ALL values are consistent and no further recalculation needed.
     """
-    from simulator.ws_formula_service import recalculate_all_ws_data
-    
     start = time.perf_counter()
     stats = {
         'input_renewables': 0,
-        'ws_updated': 0,
-        'output_renewables': 0,
+        'ws365_updated': False,
         'final_renewables': 0,
         'duration_ms': 0,
     }
     
     print("\n" + "="*60)
-    print("🔄 UNIFIED RECALCULATION - Full Chain (FAST)")
+    print("🔄 UNIFIED RECALCULATION - Renewables + WS 365")
     print("="*60)
     
     with transaction.atomic():
-        # Single pass is usually enough - the order handles dependencies
         print(f"\n--- 🔄 UNIFIED RECALCULATION ---")
         
         # STEP 1: Recalculate INPUT renewables (everything EXCEPT 9.3.1, 9.3.4)
@@ -253,11 +252,18 @@ def unified_recalc_all() -> Dict[str, Any]:
         stats['input_renewables'] = input_updates
         print(f"   ✅ Updated {input_updates} input renewables")
         
-        # STEP 2: Recalculate WS data (uses input renewables) - use 1 pass for speed
-        print("\n⚡ Step 2/3: Recalculating WS data (1 pass)...")
-        ws_stats = recalculate_all_ws_data(num_passes=1)
-        stats['ws_updated'] = ws_stats.get('updated', 0)
-        print(f"   ✅ Updated {ws_stats.get('updated', 0)} WS entries")
+        # STEP 2: Update 9.3.1 and 9.3.4 from WS 365 calculation
+        # NOTE: This does NOT use WSData rows - it uses ws_365_service directly
+        print("\n⚡ Step 2/3: Updating 9.3.1 and 9.3.4 from WS 365 calculation...")
+        try:
+            from simulator.ws_365_service import get_ws_365_data
+            # This call will update 9.3.1 and 9.3.4 target_value in database
+            # Status values remain 0 (only target/ziel comes from WS 365)
+            get_ws_365_data(run_goal_seek=False)
+            stats['ws365_updated'] = True
+            print(f"   ✅ Updated 9.3.1 and 9.3.4 from WS 365")
+        except Exception as e:
+            print(f"   ⚠️ WS 365 update failed: {e}")
         
         # STEP 3: Recalculate ALL renewables (so 10.1 includes stored 9.3.1, 9.3.4)
         print("\n📊 Step 3/3: Recalculating ALL renewables (updating totals)...")
@@ -270,8 +276,8 @@ def unified_recalc_all() -> Dict[str, Any]:
     print("\n" + "="*60)
     print(f"✅ UNIFIED RECALCULATION COMPLETE in {stats['duration_ms']}ms")
     print(f"   Input Renewables: {stats['input_renewables']}")
-    print(f"   WS Entries: {stats['ws_updated']}")
-    print("   Output Renewables (9.3.x): 0 (fixed in DB)")
+    print(f"   WS 365 Updated: {stats['ws365_updated']}")
+    print("   9.3.1/9.3.4: target from WS 365, status = 0")
     print(f"   Final Renewables (with totals): {stats['final_renewables']}")
     print("="*60 + "\n")
     

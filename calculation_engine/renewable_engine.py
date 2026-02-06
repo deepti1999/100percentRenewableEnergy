@@ -113,6 +113,9 @@ class RenewableCalculator:
                 raise ValueError(f"RenewableData {code} not found in database")
             return (None, None)
         
+        # NOTE: 9.3.1 and 9.3.4 values are now updated directly in database by ws_365_service
+        # No special handling needed here - they read from database like all other rows
+        
         # Try to load formula (may be missing or flagged fixed)
         formula_obj = Formula.objects.filter(
             key=code, category='renewable', is_active=True

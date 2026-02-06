@@ -567,16 +567,26 @@ def calculate_bilanz_data(fail_fast=False):
         'mobile': None
     }
     
-    # Helper for Abwärme Gebäudewärme
-    def get_abwaerme_gebaeudewaerme(use_target):
+    # Helper for Abwärme Gebäudewärme - STATUS column (original formula)
+    def get_abwaerme_gebaeudewaerme_status():
         codes = ['4.3.4.2', '4.4.1', '5.4.2.4', '6.1.3.2.4', '9.3.2.1']
         total_val = 0
         for c in codes:
-            total_val += safe_get_renewable(c, use_target=use_target)
+            total_val += safe_get_renewable(c, use_target=False)
+        return total_val
+    
+    # Helper for Abwärme Gebäudewärme - ZIEL column
+    # Formula: 4.3.3.4 status + 4.4.2 status + 5.4.2.4 status + 6.1.3.2.4 status
+    # Note: Uses STATUS values from RenewableData for Ziel display in Bilanz
+    def get_abwaerme_gebaeudewaerme_ziel():
+        codes = ['4.3.3.4', '4.4.2', '5.4.2.4', '6.1.3.2.4']
+        total_val = 0
+        for c in codes:
+            total_val += safe_get_renewable(c, use_target=False)  # Use status values
         return total_val
 
-    abwaerme_status_gw = get_abwaerme_gebaeudewaerme(False)
-    abwaerme_ziel_gw = get_abwaerme_gebaeudewaerme(True)
+    abwaerme_status_gw = get_abwaerme_gebaeudewaerme_status()
+    abwaerme_ziel_gw = get_abwaerme_gebaeudewaerme_ziel()
 
     verbrauch_heat_abwaerme = {
         'status': {

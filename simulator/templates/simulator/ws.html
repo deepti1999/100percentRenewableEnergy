@@ -1,0 +1,491 @@
+{% extends 'simulator/base.html' %}
+
+{% block title %}WS – 365 Tage Simulation{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar Navigation -->
+        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+            <div class="position-sticky pt-3">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Simulationsmodule</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
+                            <i class="fas fa-tachometer-alt me-2"></i>
+                            Übersicht
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
+                            <i class="fas fa-map me-2"></i>
+                            Flächennutzung
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:renewable_list' %}">
+                            <i class="fas fa-solar-panel me-2"></i>
+                            Erneuerbare Energien
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Verbrauch
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{% url 'simulator:ws' %}">
+                            <i class="fas fa-calendar-alt me-2"></i>
+                            WS (365 Tage)
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:cockpit' %}">
+                            <i class="fas fa-cogs me-2"></i>
+                            Cockpit
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
+                            <i class="fas fa-bolt me-2"></i>
+                            Jahresstrom
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:smard_solar_wind' %}">
+                            <i class="fas fa-chart-area me-2"></i>
+                            SMARD Solar & Wind
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'simulator:bilanz' %}">
+                            <i class="fas fa-balance-scale me-2"></i>
+                            Bilanz
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+            <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                <h1 class="h2">
+                    <i class="fas fa-calendar-alt me-2"></i>
+                    WS – 365 Tage Energie-Simulation
+                </h1>
+                <div class="btn-toolbar mb-2 mb-md-0">
+                    <button type="button" class="btn btn-success me-2" id="runGoalSeekBtn">
+                        <i class="fas fa-bullseye me-1"></i>Goal Seek ausführen
+                    </button>
+                    <button type="button" class="btn btn-primary me-2" id="applyBalanceBtn" {% if not goal_seek %}disabled{% endif %}>
+                        <i class="fas fa-balance-scale me-1"></i>Balance anwenden
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="refreshDataBtn">
+                        <i class="fas fa-sync-alt me-1"></i>Aktualisieren
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="row mb-4">
+                <!-- Current Values Card -->
+                <div class="col-md-6 mb-3">
+                    <div class="card border-primary h-100">
+                        <div class="card-header bg-primary text-white">
+                            <i class="fas fa-bolt me-2"></i>Aktuelle Werte
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm table-borderless mb-0">
+                                <tr>
+                                    <td><strong>Jahresverbrauch:</strong></td>
+                                    <td class="text-end" id="current_annual_demand">{{ current.annual_demand|floatformat:0|default:"–" }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Solar (9.1.2):</strong></td>
+                                    <td class="text-end" id="current_solar">{{ current.solar|floatformat:0|default:"–" }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Wind (9.1.1):</strong></td>
+                                    <td class="text-end">{{ current.wind|floatformat:0|default:"–" }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Speicherdrift:</strong></td>
+                                    <td class="text-end {% if current.storage_drift > 0 %}text-success{% elif current.storage_drift < 0 %}text-danger{% endif %}" id="current_drift">
+                                        {{ current.storage_drift|floatformat:2|default:"–" }}
+                                    </td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Erneuerbare %:</strong></td>
+                                    <td class="text-end">{{ current.renewable_pct|floatformat:2|default:"–" }}</td>
+                                    <td>%</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Goal Seek Result Card -->
+                <div class="col-md-6 mb-3">
+                    <div class="card border-success h-100">
+                        <div class="card-header bg-success text-white">
+                            <i class="fas fa-bullseye me-2"></i>Goal Seek Ergebnis (Balanciert)
+                        </div>
+                        <div class="card-body">
+                            {% if goal_seek %}
+                            <table class="table table-sm table-borderless mb-0">
+                                <tr>
+                                    <td><strong>Optimales Solar:</strong></td>
+                                    <td class="text-end text-success fw-bold" id="optimal_solar">{{ goal_seek.optimal_solar|floatformat:0 }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Änderung:</strong></td>
+                                    <td class="text-end {% if goal_seek.solar_change < 0 %}text-danger{% else %}text-success{% endif %}">
+                                        {{ goal_seek.solar_change|floatformat:0 }} ({{ goal_seek.solar_change_pct|floatformat:2 }}%)
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Speicherdrift:</strong></td>
+                                    <td class="text-end text-success" id="optimal_drift">{{ goal_seek.storage_drift|floatformat:2 }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Jahresstrom:</strong></td>
+                                    <td class="text-end">{{ goal_seek.annual_electricity|floatformat:0 }}</td>
+                                    <td>GWh</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Iterationen:</strong></td>
+                                    <td class="text-end">{{ goal_seek.iterations }}</td>
+                                    <td></td>
+                                </tr>
+                                {% if goal_seek.required_landuse %}
+                                <tr class="table-success">
+                                    <td><strong>Benötigtes LU_2.1:</strong></td>
+                                    <td class="text-end text-primary fw-bold" id="required_landuse">{{ goal_seek.required_landuse|floatformat:0 }}</td>
+                                    <td>ha</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>LU_2.1 Änderung:</strong></td>
+                                    <td class="text-end {% if goal_seek.landuse_change < 0 %}text-danger{% else %}text-success{% endif %}">
+                                        {{ goal_seek.landuse_change|floatformat:0 }} ha
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                {% endif %}
+                            </table>
+                            <div class="mt-2">
+                                <small class="text-muted">Klicken Sie auf "Balance anwenden" um LU_2.1 automatisch anzupassen.</small>
+                            </div>
+                            {% else %}
+                            <p class="text-muted mb-0">Klicken Sie auf "Goal Seek ausführen" um das optimale Solar zu berechnen.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Storage Flow Summary -->
+            <div class="row mb-4">
+                <div class="col-md-3 mb-3">
+                    <div class="card border-secondary">
+                        <div class="card-body text-center">
+                            <h6 class="text-secondary"><i class="fas fa-arrow-up me-1"></i>Überschuss Summe</h6>
+                            <h4 id="ueberschuss_sum">{{ current.ueberschuss_sum|floatformat:0|default:"–" }} GWh</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card border-info">
+                        <div class="card-body text-center">
+                            <h6 class="text-info"><i class="fas fa-download me-1"></i>Einspeich. Summe</h6>
+                            <h4 id="einspeich_sum">{{ current.einspeich_sum|floatformat:0|default:"–" }} GWh</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card border-warning">
+                        <div class="card-body text-center">
+                            <h6 class="text-warning"><i class="fas fa-upload me-1"></i>Ausspeich. Summe</h6>
+                            <h4 id="ausspeich_sum">{{ current.ausspeich_sum|floatformat:0|default:"–" }} GWh</h4>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="card border-danger">
+                        <div class="card-body text-center">
+                            <h6 class="text-danger"><i class="fas fa-ban me-1"></i>Abregelung Summe</h6>
+                            <h4 id="abregelung_sum">{{ current.abregelung_sum|floatformat:0|default:"–" }} GWh</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 365 Days Table -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-table me-2"></i>365 Tage Daten
+                    </h5>
+                    <div>
+                        <span class="badge bg-secondary me-2">{{ daily_data|length }} Tage</span>
+                        <button class="btn btn-sm btn-outline-primary" id="exportCsvBtn">
+                            <i class="fas fa-download me-1"></i>CSV Export
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-bordered table-hover table-sm mb-0" id="ws365Table">
+                            <thead class="table-dark sticky-top">
+                                <tr>
+                                    <th class="text-center" style="min-width: 50px;">Tag<br><small class="text-muted fw-normal">Day</small></th>
+                                    <th class="text-end" style="min-width: 80px;">Solar‰<br><small class="text-muted fw-normal">solar_promille</small></th>
+                                    <th class="text-end" style="min-width: 80px;">Wind‰<br><small class="text-muted fw-normal">wind_promille</small></th>
+                                    <th class="text-end" style="min-width: 80px;">Heiz.‰<br><small class="text-muted fw-normal">heizung_abwaerm</small></th>
+                                    <th class="text-end" style="min-width: 80px;">Verbr.‰<br><small class="text-muted fw-normal">verbrauch_promille</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Stromverbr.<br><small class="text-muted fw-normal">Stromverbrauch</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Raumw.korr<br><small class="text-muted fw-normal">davon Raumw.korr</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Verbr.korr<br><small class="text-muted fw-normal">Stromverbr.Raumw.korr</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Solar Strom<br><small class="text-muted fw-normal">Solar Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Wind Strom<br><small class="text-muted fw-normal">Wind Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Sonst.Kraftw<br><small class="text-muted fw-normal">Sonst.Kraftw (konstant)</small></th>
+                                    <th class="text-end" style="min-width: 100px;">W+S+K<br><small class="text-muted fw-normal">Wind+Solar+konstant</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Direktverbr.<br><small class="text-muted fw-normal">Direktverbr.Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Überschuss<br><small class="text-muted fw-normal">Überschuss Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Einspeich.<br><small class="text-muted fw-normal">Einspeicherung</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Abregelung<br><small class="text-muted fw-normal">Abregelung</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Mangel-Last<br><small class="text-muted fw-normal">Mangel-Last</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Brennst.Ausg.<br><small class="text-muted fw-normal">Brennstoff-Ausgl.-Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Speich.Ausg.<br><small class="text-muted fw-normal">Speicher-Ausgl.-Strom</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Ausspeich.R<br><small class="text-muted fw-normal">Ausspeich.Rückverstr</small></th>
+                                    <th class="text-end" style="min-width: 100px;">Ausspeich.G<br><small class="text-muted fw-normal">Ausspeich.Gas</small></th>
+                                    <th class="text-end bg-warning" style="min-width: 120px;">Ladezust.Br.<br><small class="text-dark fw-normal">Ladezust.Brutto</small></th>
+                                </tr>
+                            </thead>
+                            <tbody id="ws365TableBody">
+                                {% for row in daily_data %}
+                                <tr>
+                                    <td class="text-center fw-bold">{{ row.day }}</td>
+                                    <td class="text-end">{{ row.solar_promille|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.wind_promille|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.heizung_abwaerm_promille|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.verbrauch_promille|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.stromverbrauch|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.davon_raumw_korr|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.stromverbr_raumw_korr|floatformat:2 }}</td>
+                                    <td class="text-end text-warning">{{ row.solar_strom|floatformat:2 }}</td>
+                                    <td class="text-end text-info">{{ row.wind_strom|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.sonst_kraftw|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.wind_solar_konstant|floatformat:2 }}</td>
+                                    <td class="text-end text-success">{{ row.direktverbr_strom|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.ueberschuss_strom|floatformat:2 }}</td>
+                                    <td class="text-end text-primary">{{ row.einspeich|floatformat:2 }}</td>
+                                    <td class="text-end text-danger">{{ row.abregelung|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.mangel_last|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.brennstoff_ausgleich|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.speicher_ausgl_strom|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.ausspeich_rueckverstr|floatformat:2 }}</td>
+                                    <td class="text-end">{{ row.ausspeich_gas|floatformat:2 }}</td>
+                                    <td class="text-end fw-bold {% if row.ladezust_brutto >= 0 %}text-success{% else %}text-danger{% endif %}">{{ row.ladezust_brutto|floatformat:2 }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="fas fa-info-circle me-2"></i>Legende
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <ul class="list-unstyled mb-0">
+                                <li><span class="badge bg-warning">Solar Strom</span> Tägliche Solarstromerzeugung</li>
+                                <li><span class="badge bg-info">Wind Strom</span> Tägliche Windstromerzeugung</li>
+                                <li><span class="badge bg-success">Direktverbr.</span> Direkter Stromverbrauch</li>
+                                <li><span class="badge bg-primary">Einspeich.</span> Einspeicherung in Speicher</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <ul class="list-unstyled mb-0">
+                                <li><span class="badge bg-danger">Abregelung</span> Überschuss der abgeregelt wird</li>
+                                <li><strong>Ladezust.Br.</strong> Speicherstand (kumulativ)</li>
+                                <li><strong>Goal Seek</strong> Findet Solar-Wert für Speicherbalance (Tag 365 = Tag 1)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+
+<style>
+.sidebar {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 48px 0 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+.sidebar .nav-link {
+    font-weight: 500;
+    color: #333;
+    padding: 0.75rem 1rem;
+}
+
+.sidebar .nav-link:hover {
+    background-color: rgba(0,0,0,.05);
+}
+
+.sidebar .nav-link.active {
+    color: #2470dc;
+    background-color: rgba(36, 112, 220, 0.1);
+}
+
+.sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+#ws365Table th {
+    white-space: nowrap;
+    font-size: 0.75rem;
+}
+
+#ws365Table td {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+}
+</style>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Refresh Data Button
+    document.getElementById('refreshDataBtn').addEventListener('click', function() {
+        window.location.reload();
+    });
+    
+    // Goal Seek Button
+    document.getElementById('runGoalSeekBtn').addEventListener('click', function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Berechnung läuft...';
+        
+        fetch('{% url "simulator:ws_api_goal_seek" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Goal Seek abgeschlossen!\n\n' +
+                          'Optimales Solar: ' + Math.round(data.optimal_solar).toLocaleString() + ' GWh\n' +
+                          'Änderung: ' + Math.round(data.solar_change).toLocaleString() + ' GWh (' + data.solar_change_pct.toFixed(2) + '%)\n' +
+                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh\n\n' +
+                          'Seite wird aktualisiert...');
+                    window.location.reload();
+                } else {
+                    alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
+                }
+            })
+            .catch(error => {
+                alert('Fehler beim Goal Seek: ' + error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-bullseye me-1"></i>Goal Seek ausführen';
+            });
+    });
+    
+    // Apply Balance Button
+    document.getElementById('applyBalanceBtn').addEventListener('click', function() {
+        const btn = this;
+        if (!confirm('Möchten Sie LU_2.1 auf den balancierten Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
+            return;
+        }
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
+        
+        fetch('{% url "simulator:ws_api_apply_balance" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Balance angewendet!\n\n' +
+                          'LU_2.1 aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
+                          '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
+                          'Solar (9.1.2): ' + Math.round(data.new_solar).toLocaleString() + ' GWh\n' +
+                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh\n\n' +
+                          'Seite wird aktualisiert...');
+                    window.location.reload();
+                } else {
+                    alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
+                }
+            })
+            .catch(error => {
+                alert('Fehler beim Anwenden: ' + error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-balance-scale me-1"></i>Balance anwenden';
+            });
+    });
+    
+    // CSV Export Button
+    document.getElementById('exportCsvBtn').addEventListener('click', function() {
+        const table = document.getElementById('ws365Table');
+        let csv = [];
+        
+        // Get headers
+        const headers = [];
+        table.querySelectorAll('thead th').forEach(th => {
+            headers.push('"' + th.textContent.trim() + '"');
+        });
+        csv.push(headers.join(','));
+        
+        // Get rows
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            const row = [];
+            tr.querySelectorAll('td').forEach(td => {
+                row.push('"' + td.textContent.trim() + '"');
+            });
+            csv.push(row.join(','));
+        });
+        
+        // Download
+        const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ws_365_tage_' + new Date().toISOString().split('T')[0] + '.csv';
+        a.click();
+        window.URL.revokeObjectURL(url);
+    });
+});
+</script>
+{% endblock %}

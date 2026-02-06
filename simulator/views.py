@@ -271,6 +271,9 @@ def renewable_list(request):
         Formula.objects.filter(category='renewable', is_active=True)
         .values_list('key', flat=True)
     )
+    
+    # NOTE: 9.3.1 and 9.3.4 values are updated in database by ws_365_service
+    # No special handling needed here - they read from database like all other rows
 
     # Build hierarchical data structure for template
     hierarchical_data = []
@@ -291,6 +294,7 @@ def renewable_list(request):
 
         # USE STORED VALUES for fast page load
         # Calculations are done by recalc buttons, not on page load
+        # NOTE: 9.3.1 and 9.3.4 values are updated in database by ws_365_service
         display_value = renewable.status_value
         display_target = renewable.target_value
         
@@ -2972,3 +2976,87 @@ def save_verbrauch_user_input(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
+
+# ============================================================================
+# WS 365 Days View
+# ============================================================================
+@login_required
+def ws_view(request):
+    """WS 365 Days - Energy Balance Simulation View"""
+    from .ws_365_service import get_ws_365_data, calculate_required_landuse
+    
+    # Get data with goal seek
+    data = get_ws_365_data(run_goal_seek=True)
+    
+    # Add LandUse info to goal_seek if available
+    goal_seek = data.get('goal_seek', {})
+    if goal_seek and 'optimal_solar' in goal_seek:
+        landuse_result = calculate_required_landuse(goal_seek['optimal_solar'])
+        goal_seek['required_landuse'] = landuse_result['required_landuse']
+        goal_seek['current_landuse'] = landuse_result['current_landuse']
+        goal_seek['landuse_change'] = landuse_result['landuse_change']
+    
+    context = {
+        'current': data['current'],
+        'goal_seek': goal_seek,
+        'daily_data': data['daily_data'],
+        'optimal_daily_data': data.get('optimal_daily_data', []),
+        'current_section': 'ws',
+    }
+    
+    return render(request, 'simulator/ws.html', context)
+
+
+@login_required
+def ws_api_data(request):
+    """API endpoint to get WS 365 days data as JSON"""
+    from .ws_365_service import get_ws_365_data
+    
+    run_goal_seek = request.GET.get('goal_seek', 'false').lower() == 'true'
+    data = get_ws_365_data(run_goal_seek=run_goal_seek)
+    
+    return JsonResponse(data)
+
+
+@login_required
+def ws_api_goal_seek(request):
+    """API endpoint to run Goal Seek and return optimal solar value"""
+    from .ws_365_service import get_ws_base_data, get_fixed_values, goal_seek_optimal_solar, calculate_required_landuse
+    
+    ws_data = get_ws_base_data()
+    fixed_values = get_fixed_values()
+    result = goal_seek_optimal_solar(ws_data, fixed_values)
+    
+    # Calculate required LandUse
+    landuse_result = calculate_required_landuse(result['optimal_solar'])
+    
+    return JsonResponse({
+        'success': True,
+        'original_solar': result['original_solar'],
+        'optimal_solar': result['optimal_solar'],
+        'solar_change': result['solar_change'],
+        'solar_change_pct': result['solar_change_pct'],
+        'iterations': result['iterations'],
+        'storage_drift': result['result']['storage_drift'],
+        'annual_electricity': result['result']['annual_electricity'],
+        'annual_demand': result['result']['annual_demand'],
+        'required_landuse': landuse_result['required_landuse'],
+        'current_landuse': landuse_result['current_landuse'],
+        'landuse_change': landuse_result['landuse_change'],
+    })
+
+
+@login_required
+def ws_api_apply_balance(request):
+    """API endpoint to apply balanced LandUse (update LU_2.1)"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'POST required'}, status=405)
+    
+    try:
+        from .ws_365_service import apply_balanced_landuse
+        result = apply_balanced_landuse()
+        return JsonResponse(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)

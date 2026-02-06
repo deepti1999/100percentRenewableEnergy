@@ -20,6 +20,7 @@ urlpatterns = [
     path('landuse/<int:pk>/', views.landuse_detail, name='landuse_detail'),
     path('renewable/', views.renewable_list, name='renewable_list'),
     path('verbrauch/', views.verbrauch_view, name='verbrauch'),
+    path('ws/', views.ws_view, name='ws'),  # NEW: WS 365 Days
     path('cockpit/', views.cockpit_view, name='cockpit'),
     path('annual-electricity/', views.annual_electricity_view, name='annual_electricity'),
     path('smard/', views.smard_solar_wind, name='smard_solar_wind'),
@@ -30,6 +31,11 @@ urlpatterns = [
     path('api/balance-full/', views.balance_full_system, name='balance_full_system'),
     path('api/balance-all/', views.balance_all, name='balance_all'),
     # path('usecase-diagram/', views.usecase_diagram, name='usecase_diagram'),  # Disabled - view not implemented
+    
+    # WS 365 API Endpoints
+    path('api/ws/data/', views.ws_api_data, name='ws_api_data'),
+    path('api/ws/goal-seek/', views.ws_api_goal_seek, name='ws_api_goal_seek'),
+    path('api/ws/apply-balance/', views.ws_api_apply_balance, name='ws_api_apply_balance'),
     
     # API Endpoints
     path('api/update-user-percent/', views.update_user_percent, name='update_user_percent'),

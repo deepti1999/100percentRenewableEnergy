@@ -841,14 +841,15 @@ def _evaluate_ws_formula_universal(expression, context, current_row=None):
 @receiver(post_save, sender=LandUse)
 def update_renewable_calculations(sender, instance, created, **kwargs):
     """
-    🔄 AUTO-CASCADE: LandUse changes → Renewable → WS → Set fixed values for 9.3.1 and 9.3.4
+    🔄 AUTO-CASCADE: LandUse changes → Renewable → WS 365 → Update 9.3.1/9.3.4
     
     When any LandUse value (status_ha or target_ha) changes, this signal:
     1. Recalculates INPUT renewables (9.1.x, 9.2.x, 10.x except 9.3.1, 9.3.4)
-    2. Recalculates WS data
-    3. Sets FIXED values for 9.3.1 (405047) and 9.3.4 (189289)
-    4. Recalculates ALL renewables (so 10.1 includes 9.3.x)
+    2. Updates 9.3.1 and 9.3.4 target values from WS 365-day calculation
+       (9.3.1/9.3.4 status values stay 0)
+    3. Recalculates ALL renewables (so 10.1, 9.3.1.2, etc. include correct values)
     
+    NOTE: WSData (366 rows) is NOT recalculated - only WS 365 service is used.
     NOTE: Does NOT auto-balance! User must manually click "Balance All" on Bilanz page.
     
     Set instance._skip_cascade = True before save to skip this cascade.
@@ -918,10 +919,11 @@ def handle_landuse_deletion(sender, instance, **kwargs):
 def compute_ws_diagram_reference(use_ws_overrides: bool = True):
     """
     Compute Annual Electricity (WS1) reference values using the same logic as the
-    diagram (Annual Electricity view) with TARGET-first inputs and WS row 366
-    overrides (Abregelung/Einspeich/Ausspeich) when requested.
+    diagram (Annual Electricity view) with TARGET-first inputs and WS 365 days
+    calculation (Abregelung/Einspeich/Ausspeich sums) when requested.
     
     ✅ 100% FRESH VALUES from database formulas (not stale stored values)
+    ✅ Now uses WS 365-day calculations for Q, Elektrolyse, and Gasspeicher values
     """
 
     def renewable_value(code: str) -> float:
@@ -965,21 +967,37 @@ def compute_ws_diagram_reference(use_ws_overrides: bool = True):
 
     ely_branch_value = renewable_value('9.2.1.5.2')
     
-    # Get values from WSData row 366
+    # ==================================================================================
+    # GET VALUES FROM WS 365-DAY CALCULATION (instead of WSData row 366)
+    # ==================================================================================
     try:
-        ws_row_366 = WSData.objects.get(tag_im_jahr=366)
-        # Q (Abregelung) from WSData row 366 abregelung_z
-        q_abregelung = float(ws_row_366.abregelung_z or 0)
-        # Elektrolyse Stromspeicher (Überschuss) from WSData row 366 einspeich / 65%
-        einspeich_366 = float(ws_row_366.einspeich or 0)
-        n_output_branch = einspeich_366 / 0.65  # divide by 65%
-        # Gasspeicher Strom T from WSData row 366 ausspeich_rueckverstr
-        t_value = float(ws_row_366.ausspeich_rueckverstr or 0)
-    except WSData.DoesNotExist:
-        q_abregelung = 0
-        n_output_branch = 0
-        einspeich_366 = 0
-        t_value = 0
+        from .ws_365_service import get_ws_365_data
+        ws_365_data = get_ws_365_data(run_goal_seek=False)
+        current = ws_365_data['current']
+        
+        # Q (Abregelung) = sum of abregelung column from WS 365 days
+        q_abregelung = float(current.get('abregelung_sum', 0))
+        
+        # Elektrolyse Stromspeicher (Überschuss) = sum of einspeich / 65%
+        einspeich_sum = float(current.get('einspeich_sum', 0))
+        n_output_branch = einspeich_sum / 0.65 if einspeich_sum > 0 else 0
+        
+        # Gasspeicher Strom T = sum of ausspeich_rueckverstr from WS 365 days
+        t_value = float(current.get('ausspeich_sum', 0))
+        
+    except Exception as e:
+        # Fallback to WSData row 366 if WS 365 service fails
+        print(f"WS 365 service failed, falling back to WSData row 366: {e}")
+        try:
+            ws_row_366 = WSData.objects.get(tag_im_jahr=366)
+            q_abregelung = float(ws_row_366.abregelung_z or 0)
+            einspeich_366 = float(ws_row_366.einspeich or 0)
+            n_output_branch = einspeich_366 / 0.65
+            t_value = float(ws_row_366.ausspeich_rueckverstr or 0)
+        except WSData.DoesNotExist:
+            q_abregelung = 0
+            n_output_branch = 0
+            t_value = 0
     
     n_input_branch = q_abregelung  # Abregelung feeds into N
 
