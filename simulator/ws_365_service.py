@@ -341,12 +341,13 @@ def update_renewable_from_ws365(ws_result):
     # 9.3.4 ziel = abregelung_sum
     value_934 = ws_result.get('abregelung_sum', 0)
     
-    # Update database
+    # Update database - SKIP CASCADE to avoid infinite loop!
+    # The cascade will be triggered by unified_recalc_all after all updates are done.
     try:
         r931 = RenewableData.objects.get(code='9.3.1')
         if r931.target_value != value_931:
             r931.target_value = value_931
-            r931.save(update_fields=['target_value'])
+            r931.save(skip_cascade=True, update_fields=['target_value'])
             print(f"✅ Updated 9.3.1 ziel to {value_931:.2f} GWh")
     except RenewableData.DoesNotExist:
         print("⚠️ RenewableData 9.3.1 not found")
@@ -355,7 +356,7 @@ def update_renewable_from_ws365(ws_result):
         r934 = RenewableData.objects.get(code='9.3.4')
         if r934.target_value != value_934:
             r934.target_value = value_934
-            r934.save(update_fields=['target_value'])
+            r934.save(skip_cascade=True, update_fields=['target_value'])
             print(f"✅ Updated 9.3.4 ziel to {value_934:.2f} GWh")
     except RenewableData.DoesNotExist:
         print("⚠️ RenewableData 9.3.4 not found")
@@ -410,45 +411,104 @@ def apply_balanced_landuse():
     """
     Run Goal Seek, calculate required LandUse, and update LU_2.1 in database.
     
-    This function:
-    1. Runs Goal Seek to find optimal Solar
+    This function uses ONLY ws_365_service calculations (no WSData database):
+    1. Runs Goal Seek to find optimal Solar (balanced storage for 365 days)
     2. Calculates required LU_2.1 to achieve that Solar
     3. Updates LU_2.1 in database
-    4. Triggers recalculation cascade
+    4. Recalculates ONLY the renewable chain (LU_2.1 -> 1.2.1.2 -> 9.1.2)
+    5. Updates 9.3.1 and 9.3.4 from WS 365 calculation
+    
+    NO WSData recalculation - all balance logic comes from ws_365_service.
     
     Returns:
         dict with all results
     """
-    from .models import LandUse
-    from simulator.recalc_service import unified_recalc_all
+    from .models import LandUse, RenewableData
+    from django.db import transaction
     
-    # Step 1: Run Goal Seek
+    # Step 1: Run Goal Seek (using ws_365_service ONLY)
+    print("🔍 Running Goal Seek...")
     ws_data = get_ws_base_data()
     fixed_values = get_fixed_values()
     goal_seek_result = goal_seek_optimal_solar(ws_data, fixed_values)
     
     optimal_solar = goal_seek_result['optimal_solar']
+    print(f"   ✅ Found optimal Solar: {optimal_solar:,.0f} GWh")
+    print(f"   ✅ Storage drift at optimal: {goal_seek_result['result']['storage_drift']:.2f} GWh")
     
     # Step 2: Calculate required LandUse
     landuse_result = calculate_required_landuse(optimal_solar)
     required_landuse = landuse_result['required_landuse']
     old_landuse = landuse_result['current_landuse']
+    print(f"   📐 Required LU_2.1: {required_landuse:,.0f} ha (change: {required_landuse - old_landuse:+,.0f} ha)")
     
-    # Step 3: Update LU_2.1 in database
-    lu_21 = LandUse.objects.get(code='LU_2.1')
-    lu_21.target_ha = required_landuse
-    lu_21._skip_cascade = True  # Skip automatic cascade, we'll do it manually
-    lu_21.save(update_fields=['target_ha'])
-    print(f"✅ Updated LU_2.1 target_ha: {old_landuse:.2f} → {required_landuse:.2f} ha")
+    with transaction.atomic():
+        # Step 3: Update LU_2.1 in database (skip cascade - we'll handle it)
+        lu_21 = LandUse.objects.get(code='LU_2.1')
+        lu_21.target_ha = required_landuse
+        lu_21._skip_cascade = True
+        lu_21.save(update_fields=['target_ha'])
+        print(f"✅ Updated LU_2.1 target_ha: {old_landuse:.2f} → {required_landuse:.2f} ha")
+        
+        # Step 4: Recalculate ONLY the renewable chain affected by LU_2.1
+        # The chain is: LU_2.1 -> 1.2.1.2 -> 1.2.1 -> 9.1.2 -> 9.1 -> 9.2 -> etc.
+        print("🔄 Recalculating renewable chain...")
+        
+        # 1.2.1.2 = LU_2.1 * 1.2.1.1 / 1000
+        r_1211 = RenewableData.objects.get(code='1.2.1.1')
+        r_1212 = RenewableData.objects.get(code='1.2.1.2')
+        new_1212 = required_landuse * (r_1211.target_value or 0) / 1000
+        r_1212.target_value = new_1212
+        r_1212.save(skip_cascade=True)
+        print(f"   ✅ 1.2.1.2 = {new_1212:,.0f} GWh")
+        
+        # 9.1.2 = 1.1.2.1.2 + 1.2.1.2
+        r_11212 = RenewableData.objects.get(code='1.1.2.1.2')
+        r_912 = RenewableData.objects.get(code='9.1.2')
+        new_912 = (r_11212.target_value or 0) + new_1212
+        r_912.target_value = new_912
+        r_912.save(skip_cascade=True)
+        print(f"   ✅ 9.1.2 = {new_912:,.0f} GWh")
+        
+        # Step 5: Calculate WS 365 days with new Solar and update 9.3.1, 9.3.4
+        print("📊 Calculating WS 365 days with new Solar...")
+        ws_data = get_ws_base_data()
+        fixed_values = get_fixed_values()  # This now has the new 9.1.2 value
+        final_result = calculate_365_days(fixed_values['ziel_912'], ws_data, fixed_values)
+        
+        # Update 9.3.1 and 9.3.4 from WS 365 calculation
+        einspeich_sum = final_result.get('einspeich_sum', 0)
+        abregelung_sum = final_result.get('abregelung_sum', 0)
+        
+        value_931 = einspeich_sum / ELECTROLYSIS_EFFICIENCY if einspeich_sum > 0 else 0
+        value_934 = abregelung_sum
+        
+        r931 = RenewableData.objects.get(code='9.3.1')
+        r931.target_value = value_931
+        r931.save(skip_cascade=True)
+        print(f"   ✅ 9.3.1 = {value_931:,.0f} GWh (from einspeich)")
+        
+        r934 = RenewableData.objects.get(code='9.3.4')
+        r934.target_value = value_934
+        r934.save(skip_cascade=True)
+        print(f"   ✅ 9.3.4 = {value_934:,.0f} GWh (from abregelung)")
+        
+        # Step 5b: Update 9.4.1 ziel with annual_electricity (final electricity production)
+        # We also set is_fixed=True and clear the formula so recalculation won't overwrite it
+        annual_electricity = final_result.get('annual_electricity', 0)
+        r941 = RenewableData.objects.get(code='9.4.1')
+        r941.target_value = annual_electricity
+        r941.is_fixed = True  # Mark as fixed so formula won't overwrite
+        r941.formula = None   # Clear the formula
+        r941.save(skip_cascade=True)
+        print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
     
-    # Step 4: Trigger recalculation cascade
-    print("🔄 Triggering recalculation cascade...")
-    unified_recalc_all()
-    
-    # Step 5: Verify the result
-    ws_data = get_ws_base_data()
-    fixed_values = get_fixed_values()
-    verify_result = calculate_365_days(fixed_values['ziel_912'], ws_data, fixed_values)
+    # Step 6: Final verification
+    final_drift = final_result['storage_drift']
+    annual_electricity = final_result.get('annual_electricity', 0)
+    print(f"\n✅ BALANCE COMPLETE")
+    print(f"   Storage Drift: {final_drift:.2f} GWh (target: 0)")
+    print(f"   Annual Electricity (9.4.1): {annual_electricity:,.0f} GWh")
     
     return {
         'success': True,
@@ -456,7 +516,8 @@ def apply_balanced_landuse():
         'new_landuse': required_landuse,
         'landuse_change': required_landuse - old_landuse,
         'optimal_solar': optimal_solar,
-        'new_solar': fixed_values['ziel_912'],  # After recalculation
-        'storage_drift': verify_result['storage_drift'],
+        'new_solar': fixed_values['ziel_912'],
+        'storage_drift': final_drift,
+        'annual_electricity': annual_electricity,
         'iterations': goal_seek_result['iterations'],
     }

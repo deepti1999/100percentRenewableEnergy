@@ -683,6 +683,8 @@ class RenewableData(models.Model):
         skip_verbrauch_recalc = kwargs.pop('skip_verbrauch_recalc', False)
         # Hint to post_save signal to optionally skip heavy Verbrauch recalc when cascading LandUse updates
         self._skip_verbrauch_recalc = skip_verbrauch_recalc
+        # Set _skip_cascade for signals to read (they check this attribute)
+        self._skip_cascade = skip_cascade
         old_status = None
         old_target = None
         
@@ -1327,7 +1329,8 @@ class VerbrauchData(models.Model):
     def calculate_ziel_value(self):
         """Calculate ZIEL value using calculation_engine.VerbrauchCalculator (database-driven)"""
         # If this is a fixed value (user input), return it directly
-        if not self.is_calculated:
+        # Check BOTH is_calculated AND ziel_calculated flags
+        if not self.is_calculated and not self.ziel_calculated:
             return self.ziel
         
         try:

@@ -360,6 +360,18 @@ def annual_electricity_view(request):
     windstrom_366 = diagram.get('windstrom_366', 0.0)
     sonst_kraft_konstant_366 = diagram.get('sonst_kraft_konstant_366', 0.0)
 
+    # Update 9.4.1 ziel with final_stromnetz (annual electricity from diagram)
+    try:
+        from .models import RenewableData
+        r941 = RenewableData.objects.get(code='9.4.1')
+        if r941.target_value != final_stromnetz:
+            r941.target_value = final_stromnetz
+            r941.is_fixed = True
+            r941.formula = None
+            r941.save(skip_cascade=True)
+    except Exception:
+        pass  # Don't break the page if update fails
+
     context = {
         'current_section': 'annual_electricity', 
         'title': 'Annual Electricity Analysis',
