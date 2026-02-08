@@ -794,6 +794,11 @@ def save_all_user_inputs(request):
                     current_percent = (landuse.target_ha / landuse.parent.target_ha * 100) if landuse.parent.target_ha > 0 else 0
                 else:
                     current_percent = 0
+
+                # Skip unchanged values so "Save All" doesn't rewrite target_ha
+                # for rows the user did not actually modify.
+                if abs(percent_val - current_percent) < 1e-9:
+                    continue
                 
                 if current_percent > 0:
                     percentage_point_change = percent_val - current_percent

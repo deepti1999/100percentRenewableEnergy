@@ -13,6 +13,7 @@ from .ws_models import WSData
 GRID_LOSS_RATE = 0.092
 ELECTROLYSIS_EFFICIENCY = 0.65
 RUECKVERSTROEMUNG_EFFICIENCY = 0.585
+FIXED_82_TARGET = 12000.0
 
 
 def get_ws_base_data():
@@ -407,6 +408,239 @@ def calculate_required_landuse(optimal_solar):
     }
 
 
+def _get_sector_totals():
+    """
+    Read the live sector totals used by the active pages:
+    - Demand: Verbrauch 2.10 (Gebäudewärme), 3.7 (Prozesswärme)
+    - Supply: Renewable 10.4 (Gebäudewärme), 10.5 (Prozesswärme)
+    """
+    v210 = VerbrauchData.objects.get(code='2.10')
+    v37 = VerbrauchData.objects.get(code='3.7')
+    r104 = RenewableData.objects.get(code='10.4')
+    r105 = RenewableData.objects.get(code='10.5')
+
+    gw_demand = float(v210.ziel or 0)
+    pw_demand = float(v37.ziel or 0)
+    gw_supply = float(r104.target_value or 0)
+    pw_supply = float(r105.target_value or 0)
+
+    return {
+        'gebaeudewaerme': {
+            'demand': gw_demand,
+            'supply': gw_supply,
+            'gap': gw_demand - gw_supply,
+        },
+        'prozesswaerme': {
+            'demand': pw_demand,
+            'supply': pw_supply,
+            'gap': pw_demand - pw_supply,
+        },
+    }
+
+
+def _balance_heat_sectors_after_ws():
+    """
+    After electricity/WS balancing, align heat-sector totals:
+    - Gebäudewärme: 10.4 (supply) to 2.10 (demand) via Verbrauch 2.8 ziel
+    - Prozesswärme: 10.5 (supply) to 3.7 (demand) via 5.4.1 target percentage
+
+    Returns detailed before/after values for API/UI visibility.
+    """
+    from simulator.recalc_service import recalc_all_renewables_full
+    from simulator.verbrauch_recalculator import recalc_all_verbrauch
+
+    # Keep 8.2 fixed to the required baseline value.
+    r82_fixed = RenewableData.objects.get(code='8.2')
+    old_82_target = float(r82_fixed.target_value or 0)
+    if abs(old_82_target - FIXED_82_TARGET) > 1e-9:
+        r82_fixed.target_value = FIXED_82_TARGET
+        r82_fixed.is_fixed = True
+        r82_fixed.save(skip_cascade=True, update_fields=['target_value', 'is_fixed'])
+    new_82_target = float(r82_fixed.target_value or 0)
+
+    def settle_totals(trigger_prefix: str, max_rounds: int = 3, tolerance: float = 1.0):
+        """
+        Recalculate until heat-sector gaps stabilize.
+        This avoids optimizing 2.8 against transient intermediate states.
+        """
+        prev = None
+        current = None
+        for idx in range(max_rounds):
+            recalc_all_verbrauch(trigger_code=f"{trigger_prefix}_{idx + 1}")
+            recalc_all_renewables_full(exclude_ws_dependent=False)
+            current = _get_sector_totals()
+            if prev is not None:
+                gw_delta = abs(current['gebaeudewaerme']['gap'] - prev['gebaeudewaerme']['gap'])
+                pw_delta = abs(current['prozesswaerme']['gap'] - prev['prozesswaerme']['gap'])
+                if gw_delta <= tolerance and pw_delta <= tolerance:
+                    break
+            prev = current
+        return current or _get_sector_totals()
+
+    # Ensure consumption + renewable totals are stable before calculating gaps.
+    before = settle_totals("ws_heat_balance_start")
+
+    # --- Gebäudewärme knob: Verbrauch 2.8 ziel (%) ---
+    v28 = VerbrauchData.objects.get(code='2.8')
+    old_28 = float(v28.ziel or 0)
+    old_gap = float(before['gebaeudewaerme']['gap'])
+    best_28 = old_28
+    best_gap = abs(old_gap)
+    tried_points = [(old_28, old_gap)]
+
+    def _clamp_28(value_28: float) -> float:
+        return max(0.0, min(100.0, float(value_28)))
+
+    def apply_28_and_get_gap(value_28: float, settle_rounds: int = 3):
+        value_28 = _clamp_28(value_28)
+        v28.ziel = value_28
+        if v28.user_editable:
+            v28.user_percent = value_28
+            v28.save(
+                skip_cascade=True,
+                skip_rebalance=True,
+                update_fields=['ziel', 'user_percent']
+            )
+        else:
+            v28.save(
+                skip_cascade=True,
+                skip_rebalance=True,
+                update_fields=['ziel']
+            )
+
+        settled = settle_totals("ws_heat_balance_2_8", max_rounds=max(1, settle_rounds))
+        gap_now = float(settled['gebaeudewaerme']['gap'])
+        return value_28, gap_now, settled
+
+    def _remember_candidate(x_val: float, gap_val: float):
+        nonlocal best_28, best_gap
+        tried_points.append((x_val, gap_val))
+        if abs(gap_val) < best_gap:
+            best_gap = abs(gap_val)
+            best_28 = x_val
+
+    def _evaluate_28_gap(value_28: float, settle_rounds: int = 3):
+        """
+        Evaluate a real committed state for 2.8 and return the resulting gap.
+        """
+        x_eval, g_eval, _ = apply_28_and_get_gap(value_28, settle_rounds=settle_rounds)
+        _remember_candidate(x_eval, g_eval)
+        return x_eval, g_eval
+
+    gw_gap_tolerance = 100.0
+
+    if abs(old_gap) > gw_gap_tolerance:
+        x_curr = old_28
+        g_curr = old_gap
+        probe_step = 0.5
+
+        for _ in range(6):
+            if abs(g_curr) <= gw_gap_tolerance:
+                break
+
+            direction = -1.0 if g_curr > 0 else 1.0
+            x_probe = _clamp_28(x_curr + (direction * probe_step))
+            if abs(x_probe - x_curr) < 1e-9:
+                break
+
+            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=3)
+
+            slope = None
+            if abs(x_probe - x_curr) > 1e-9:
+                slope = (g_probe - g_curr) / (x_probe - x_curr)
+
+            x_next = None
+            g_next = None
+            if slope is not None and abs(slope) > 1e-9:
+                x_guess = _clamp_28(x_curr - (g_curr / slope))
+                max_jump = max(1.0, probe_step * 4.0)
+                x_guess = max(x_curr - max_jump, min(x_curr + max_jump, x_guess))
+                if abs(x_guess - x_probe) > 1e-9 and abs(x_guess - x_curr) > 1e-9:
+                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=3)
+
+            candidates = [(x_curr, g_curr), (x_probe, g_probe)]
+            if x_next is not None:
+                candidates.append((x_next, g_next))
+
+            target_x, _ = min(candidates, key=lambda item: abs(item[1]))
+            current_state_x = candidates[-1][0]
+
+            if abs(target_x - current_state_x) > 1e-9:
+                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=3)
+                _remember_candidate(target_x, target_gap)
+            else:
+                target_gap = candidates[-1][1]
+
+            improved = abs(target_gap) < abs(g_curr)
+            x_curr, g_curr = target_x, target_gap
+
+            if improved:
+                probe_step = min(2.0, probe_step * 1.3)
+            else:
+                probe_step = max(0.1, probe_step * 0.5)
+                if probe_step <= 0.11:
+                    break
+
+    # Set final best 2.8 and keep that state with full settling.
+    v28.refresh_from_db(fields=['ziel', 'user_percent'])
+    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=3)
+
+    # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
+    r54 = RenewableData.objects.get(code='5.4')
+    r541 = RenewableData.objects.get(code='5.4.1')
+    base_54 = float(r54.target_value or 0)
+    old_541 = float(r541.target_value or 0)
+    pw_gap = totals_after_28['prozesswaerme']['gap']
+
+    process_adjustment = {
+        'base_5_4': base_54,
+        'old_5_4_1_percent': old_541,
+        'new_5_4_1_percent': old_541,
+        'delta_percent': 0.0,
+        'applied': False,
+        'reason': '',
+    }
+
+    if base_54 > 0:
+        delta_pct = (pw_gap * 100.0) / base_54
+        new_541 = max(0.0, min(100.0, old_541 + delta_pct))
+        if abs(new_541 - old_541) > 1e-9:
+            r541.target_value = new_541
+            r541.save(skip_cascade=True, update_fields=['target_value'])
+        process_adjustment.update({
+            'new_5_4_1_percent': new_541,
+            'delta_percent': new_541 - old_541,
+            'applied': abs(new_541 - old_541) > 1e-9,
+            'reason': '' if abs(new_541 - old_541) > 1e-9 else 'No change needed',
+        })
+    else:
+        process_adjustment['reason'] = 'Cannot adjust 5.4.1 because 5.4 target is 0'
+
+    # Recalculate until stable after both knob updates.
+    after = settle_totals("ws_heat_balance_final")
+
+    return {
+        'before': before,
+        'after': after,
+        'adjustments': {
+            'verbrauch_2_8': {
+                'old_ziel_percent': old_28,
+                'new_ziel_percent': final_28,
+                'delta_percent': final_28 - old_28,
+                'final_gap': after['gebaeudewaerme']['gap'],
+                'applied': abs(final_28 - old_28) > 1e-9,
+            },
+            'renewable_8_2_fixed': {
+                'old_target': old_82_target,
+                'new_target': new_82_target,
+                'fixed_target': FIXED_82_TARGET,
+                'applied': abs(old_82_target - new_82_target) > 1e-9,
+            },
+            'renewable_5_4_1': process_adjustment,
+        },
+    }
+
+
 def apply_balanced_landuse():
     """
     Run Goal Seek, calculate required LandUse, and update LU_2.1 in database.
@@ -417,6 +651,7 @@ def apply_balanced_landuse():
     3. Updates LU_2.1 in database
     4. Recalculates ONLY the renewable chain (LU_2.1 -> 1.2.1.2 -> 9.1.2)
     5. Updates 9.3.1 and 9.3.4 from WS 365 calculation
+    6. Balances heat sectors (10.4↔2.10 and 10.5↔3.7) using active live formulas
     
     NO WSData recalculation - all balance logic comes from ws_365_service.
     
@@ -426,86 +661,133 @@ def apply_balanced_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
     
-    # Step 1: Run Goal Seek (using ws_365_service ONLY)
-    print("🔍 Running Goal Seek...")
-    ws_data = get_ws_base_data()
-    fixed_values = get_fixed_values()
-    goal_seek_result = goal_seek_optimal_solar(ws_data, fixed_values)
-    
-    optimal_solar = goal_seek_result['optimal_solar']
-    print(f"   ✅ Found optimal Solar: {optimal_solar:,.0f} GWh")
-    print(f"   ✅ Storage drift at optimal: {goal_seek_result['result']['storage_drift']:.2f} GWh")
-    
-    # Step 2: Calculate required LandUse
-    landuse_result = calculate_required_landuse(optimal_solar)
-    required_landuse = landuse_result['required_landuse']
-    old_landuse = landuse_result['current_landuse']
-    print(f"   📐 Required LU_2.1: {required_landuse:,.0f} ha (change: {required_landuse - old_landuse:+,.0f} ha)")
-    
+    max_convergence_cycles = 3
+    ws_drift_tolerance = 0.1
+    heat_gap_tolerance = 100.0
+
+    old_landuse = None
+    required_landuse = None
+    goal_seek_result = None
+    heat_balance = None
+    final_result = None
+    new_912 = None
+    completed_cycles = 0
+
     with transaction.atomic():
-        # Step 3: Update LU_2.1 in database (skip cascade - we'll handle it)
-        lu_21 = LandUse.objects.get(code='LU_2.1')
-        lu_21.target_ha = required_landuse
-        lu_21._skip_cascade = True
-        lu_21.save(update_fields=['target_ha'])
-        print(f"✅ Updated LU_2.1 target_ha: {old_landuse:.2f} → {required_landuse:.2f} ha")
-        
-        # Step 4: Recalculate ONLY the renewable chain affected by LU_2.1
-        # The chain is: LU_2.1 -> 1.2.1.2 -> 1.2.1 -> 9.1.2 -> 9.1 -> 9.2 -> etc.
-        print("🔄 Recalculating renewable chain...")
-        
-        # 1.2.1.2 = LU_2.1 * 1.2.1.1 / 1000
-        r_1211 = RenewableData.objects.get(code='1.2.1.1')
-        r_1212 = RenewableData.objects.get(code='1.2.1.2')
-        new_1212 = required_landuse * (r_1211.target_value or 0) / 1000
-        r_1212.target_value = new_1212
-        r_1212.save(skip_cascade=True)
-        print(f"   ✅ 1.2.1.2 = {new_1212:,.0f} GWh")
-        
-        # 9.1.2 = 1.1.2.1.2 + 1.2.1.2
-        r_11212 = RenewableData.objects.get(code='1.1.2.1.2')
-        r_912 = RenewableData.objects.get(code='9.1.2')
-        new_912 = (r_11212.target_value or 0) + new_1212
-        r_912.target_value = new_912
-        r_912.save(skip_cascade=True)
-        print(f"   ✅ 9.1.2 = {new_912:,.0f} GWh")
-        
-        # Step 5: Calculate WS 365 days with new Solar and update 9.3.1, 9.3.4
-        print("📊 Calculating WS 365 days with new Solar...")
-        ws_data = get_ws_base_data()
-        fixed_values = get_fixed_values()  # This now has the new 9.1.2 value
-        final_result = calculate_365_days(fixed_values['ziel_912'], ws_data, fixed_values)
-        
-        # Update 9.3.1 and 9.3.4 from WS 365 calculation
-        einspeich_sum = final_result.get('einspeich_sum', 0)
-        abregelung_sum = final_result.get('abregelung_sum', 0)
-        
-        value_931 = einspeich_sum / ELECTROLYSIS_EFFICIENCY if einspeich_sum > 0 else 0
-        value_934 = abregelung_sum
-        
-        r931 = RenewableData.objects.get(code='9.3.1')
-        r931.target_value = value_931
-        r931.save(skip_cascade=True)
-        print(f"   ✅ 9.3.1 = {value_931:,.0f} GWh (from einspeich)")
-        
-        r934 = RenewableData.objects.get(code='9.3.4')
-        r934.target_value = value_934
-        r934.save(skip_cascade=True)
-        print(f"   ✅ 9.3.4 = {value_934:,.0f} GWh (from abregelung)")
-        
-        # Step 5b: Update 9.4.1 ziel with annual_electricity (final electricity production)
-        # We also set is_fixed=True and clear the formula so recalculation won't overwrite it
-        annual_electricity = final_result.get('annual_electricity', 0)
-        r941 = RenewableData.objects.get(code='9.4.1')
-        r941.target_value = annual_electricity
-        r941.is_fixed = True  # Mark as fixed so formula won't overwrite
-        r941.formula = None   # Clear the formula
-        r941.save(skip_cascade=True)
-        print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
+        for cycle_index in range(max_convergence_cycles):
+            cycle_no = cycle_index + 1
+            completed_cycles = cycle_no
+            print(f"🔁 Convergence cycle {cycle_no}/{max_convergence_cycles}")
+
+            # Step 1: Goal Seek on current WS inputs
+            print("🔍 Running Goal Seek...")
+            ws_data = get_ws_base_data()
+            fixed_values = get_fixed_values()
+            goal_seek_result = goal_seek_optimal_solar(
+                ws_data,
+                fixed_values,
+                tolerance=ws_drift_tolerance
+            )
+
+            optimal_solar = goal_seek_result['optimal_solar']
+            print(f"   ✅ Found optimal Solar: {optimal_solar:,.0f} GWh")
+            print(f"   ✅ Storage drift at optimal: {goal_seek_result['result']['storage_drift']:.2f} GWh")
+
+            # Step 2: Calculate required LU_2.1 from optimal solar
+            landuse_result = calculate_required_landuse(optimal_solar)
+            required_landuse = landuse_result['required_landuse']
+            if old_landuse is None:
+                old_landuse = landuse_result['current_landuse']
+            print(
+                f"   📐 Required LU_2.1: {required_landuse:,.0f} ha "
+                f"(change: {required_landuse - (landuse_result['current_landuse'] or 0):+,.0f} ha)"
+            )
+
+            # Step 3: Update LU_2.1 in DB
+            lu_21 = LandUse.objects.select_related('parent').get(code='LU_2.1')
+            lu_21.target_ha = required_landuse
+            if lu_21.parent and lu_21.parent.target_ha and lu_21.parent.target_ha > 0:
+                lu_21.user_percent = (required_landuse / lu_21.parent.target_ha) * 100.0
+            lu_21._skip_cascade = True
+            lu_21.save(update_fields=['target_ha', 'user_percent'])
+            print(f"✅ Updated LU_2.1 target_ha to {required_landuse:.2f} ha")
+
+            # Step 4: Recalculate local renewable chain LU_2.1 -> 1.2.1.2 -> 9.1.2
+            print("🔄 Recalculating renewable chain...")
+            r_1211 = RenewableData.objects.get(code='1.2.1.1')
+            r_1212 = RenewableData.objects.get(code='1.2.1.2')
+            new_1212 = required_landuse * (r_1211.target_value or 0) / 1000
+            r_1212.target_value = new_1212
+            r_1212.save(skip_cascade=True)
+            print(f"   ✅ 1.2.1.2 = {new_1212:,.0f} GWh")
+
+            r_11212 = RenewableData.objects.get(code='1.1.2.1.2')
+            r_912 = RenewableData.objects.get(code='9.1.2')
+            new_912 = (r_11212.target_value or 0) + new_1212
+            r_912.target_value = new_912
+            r_912.save(skip_cascade=True)
+            print(f"   ✅ 9.1.2 = {new_912:,.0f} GWh")
+
+            # Step 5: WS calculation and sync 9.3.1 / 9.3.4 / 9.4.1
+            print("📊 Calculating WS 365 days with new Solar...")
+            ws_data = get_ws_base_data()
+            fixed_values = get_fixed_values()
+            final_result = calculate_365_days(fixed_values['ziel_912'], ws_data, fixed_values)
+            update_renewable_from_ws365(final_result)
+
+            annual_electricity = final_result.get('annual_electricity', 0)
+            r941 = RenewableData.objects.get(code='9.4.1')
+            r941.target_value = annual_electricity
+            r941.is_fixed = True
+            r941.formula = None
+            r941.save(skip_cascade=True)
+            print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
+
+            # Step 6: Heat balancing (existing logic)
+            print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
+            heat_balance = _balance_heat_sectors_after_ws()
+            gw_after = heat_balance['after']['gebaeudewaerme']
+            pw_after = heat_balance['after']['prozesswaerme']
+            print(
+                f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
+                f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
+            )
+            print(
+                f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
+                f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
+            )
+
+            # Step 7: Re-check WS drift AFTER heat (because 2.8 changes WS demand inputs)
+            ws_data_post_heat = get_ws_base_data()
+            fixed_values_post_heat = get_fixed_values()
+            final_result = calculate_365_days(
+                fixed_values_post_heat['ziel_912'],
+                ws_data_post_heat,
+                fixed_values_post_heat
+            )
+            update_renewable_from_ws365(final_result)
+
+            annual_electricity = final_result.get('annual_electricity', 0)
+            r941.target_value = annual_electricity
+            r941.save(skip_cascade=True, update_fields=['target_value'])
+
+            final_drift = final_result['storage_drift']
+            drift_ok = abs(final_drift) <= ws_drift_tolerance
+            heat_ok = (
+                abs(gw_after['gap']) <= heat_gap_tolerance and
+                abs(pw_after['gap']) <= heat_gap_tolerance
+            )
+            print(
+                f"   🔎 Post-heat WS drift: {final_drift:.2f} GWh "
+                f"(target ±{ws_drift_tolerance})"
+            )
+            if drift_ok and heat_ok:
+                print("   ✅ Converged: WS + heat both balanced")
+                break
     
-    # Step 6: Final verification
-    final_drift = final_result['storage_drift']
-    annual_electricity = final_result.get('annual_electricity', 0)
+    # Final verification
+    final_drift = final_result['storage_drift'] if final_result else 0
+    annual_electricity = final_result.get('annual_electricity', 0) if final_result else 0
     print(f"\n✅ BALANCE COMPLETE")
     print(f"   Storage Drift: {final_drift:.2f} GWh (target: 0)")
     print(f"   Annual Electricity (9.4.1): {annual_electricity:,.0f} GWh")
@@ -516,8 +798,10 @@ def apply_balanced_landuse():
         'new_landuse': required_landuse,
         'landuse_change': required_landuse - old_landuse,
         'optimal_solar': optimal_solar,
-        'new_solar': fixed_values['ziel_912'],
+        'new_solar': new_912,
         'storage_drift': final_drift,
         'annual_electricity': annual_electricity,
-        'iterations': goal_seek_result['iterations'],
+        'iterations': goal_seek_result['iterations'] if goal_seek_result else 0,
+        'convergence_cycles': completed_cycles,
+        'heat_balance': heat_balance,
     }

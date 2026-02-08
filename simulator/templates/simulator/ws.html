@@ -436,11 +436,19 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    let sectorInfo = '';
+                    if (data.heat_balance && data.heat_balance.after) {
+                        const gw = data.heat_balance.after.gebaeudewaerme;
+                        const pw = data.heat_balance.after.prozesswaerme;
+                        sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
+                                     '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
+                    }
                     alert('Balance angewendet!\n\n' +
                           'LU_2.1 aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
                           '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
                           'Solar (9.1.2): ' + Math.round(data.new_solar).toLocaleString() + ' GWh\n' +
-                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh\n\n' +
+                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh' +
+                          sectorInfo + '\n\n' +
                           'Seite wird aktualisiert...');
                     window.location.reload();
                 } else {
