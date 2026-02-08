@@ -84,6 +84,9 @@
                     <button type="button" class="btn btn-primary me-2" id="applyBalanceBtn" {% if not goal_seek %}disabled{% endif %}>
                         <i class="fas fa-balance-scale me-1"></i>Balance anwenden
                     </button>
+                    <button type="button" class="btn btn-info text-white me-2" id="applyWindBalanceBtn" {% if not goal_seek %}disabled{% endif %}>
+                        <i class="fas fa-wind me-1"></i>Balance by Wind
+                    </button>
                     <button type="button" class="btn btn-outline-secondary" id="refreshDataBtn">
                         <i class="fas fa-sync-alt me-1"></i>Aktualisieren
                     </button>
@@ -461,6 +464,54 @@ document.addEventListener('DOMContentLoaded', function() {
             .finally(() => {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-balance-scale me-1"></i>Balance anwenden';
+            });
+    });
+
+    // Apply Wind Balance Button
+    document.getElementById('applyWindBalanceBtn').addEventListener('click', function() {
+        const btn = this;
+        if (!confirm('Möchten Sie LU_6 auf den balancierten Wind-Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
+
+        fetch('{% url "simulator:ws_api_apply_balance_wind" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    let sectorInfo = '';
+                    if (data.heat_balance && data.heat_balance.after) {
+                        const gw = data.heat_balance.after.gebaeudewaerme;
+                        const pw = data.heat_balance.after.prozesswaerme;
+                        sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
+                                     '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
+                    }
+                    alert('Wind-Balance angewendet!\n\n' +
+                          'LU_6 aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
+                          '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
+                          'Wind (9.1.1): ' + Math.round(data.new_wind).toLocaleString() + ' GWh\n' +
+                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh' +
+                          sectorInfo + '\n\n' +
+                          'Seite wird aktualisiert...');
+                    window.location.reload();
+                } else {
+                    alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
+                }
+            })
+            .catch(error => {
+                alert('Fehler beim Anwenden (Wind): ' + error);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-wind me-1"></i>Balance by Wind';
             });
     });
     

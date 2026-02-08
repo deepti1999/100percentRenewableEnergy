@@ -3077,3 +3077,19 @@ def ws_api_apply_balance(request):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@login_required
+def ws_api_apply_balance_wind(request):
+    """API endpoint to apply balanced Wind LandUse (update LU_6)."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'POST required'}, status=405)
+
+    try:
+        from .ws_365_service import apply_balanced_wind_landuse
+        result = apply_balanced_wind_landuse()
+        return JsonResponse(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)

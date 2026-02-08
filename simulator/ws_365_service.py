@@ -5,8 +5,11 @@ Backend service for 365-day energy simulation with Goal Seek.
 Provides real-time recalculation when inputs change.
 """
 
+import math
+
 from .models import VerbrauchData, RenewableData
 from .ws_models import WSData
+from typing import Optional
 
 
 # Constants
@@ -14,6 +17,25 @@ GRID_LOSS_RATE = 0.092
 ELECTROLYSIS_EFFICIENCY = 0.65
 RUECKVERSTROEMUNG_EFFICIENCY = 0.585
 FIXED_82_TARGET = 12000.0
+
+
+def _validate_required_landuse(required_landuse: float, parent_target_ha: Optional[float], code: str) -> float:
+    """
+    Guard against corrupted/overflow land-use targets.
+    """
+    value = float(required_landuse or 0.0)
+    if not math.isfinite(value):
+        raise ValueError(f"{code} required landuse is not finite: {required_landuse}")
+    if value < 0:
+        raise ValueError(f"{code} required landuse is negative: {value}")
+    if parent_target_ha and parent_target_ha > 0:
+        # Hard safety cap: anything above 100x parent area is almost certainly invalid input propagation.
+        max_allowed = float(parent_target_ha) * 100.0
+        if value > max_allowed:
+            raise ValueError(
+                f"{code} required landuse too large ({value:,.2f} ha), max allowed {max_allowed:,.2f} ha"
+            )
+    return value
 
 
 def get_ws_base_data():
@@ -57,7 +79,7 @@ def get_fixed_values():
     }
 
 
-def calculate_365_days(solar_value, ws_data, fixed_values):
+def calculate_365_days(solar_value, ws_data, fixed_values, wind_value=None):
     """
     Calculate all columns for 365 days given a Solar value.
     
@@ -65,6 +87,7 @@ def calculate_365_days(solar_value, ws_data, fixed_values):
         solar_value: The solar generation value in GWh
         ws_data: Dictionary with promille arrays (from get_ws_base_data)
         fixed_values: Dictionary with fixed values (from get_fixed_values)
+        wind_value: Optional wind override in GWh (defaults to fixed ziel_911)
     
     Returns:
         Dictionary with all results and daily data
@@ -74,7 +97,7 @@ def calculate_365_days(solar_value, ws_data, fixed_values):
     heizung_abwaerm_promille = ws_data['heizung_abwaerm_promille']
     verbrauch_promille = ws_data['verbrauch_promille']
     
-    ziel_911 = fixed_values['ziel_911']
+    ziel_911 = wind_value if wind_value is not None else fixed_values['ziel_911']
     ziel_912 = solar_value
     ziel_913 = fixed_values['ziel_913']
     ziel_914 = fixed_values['ziel_914']
@@ -262,6 +285,96 @@ def goal_seek_optimal_solar(ws_data, fixed_values, tolerance=0.1, max_iterations
     }
 
 
+def goal_seek_optimal_wind(ws_data, fixed_values, tolerance=0.1, max_iterations=50):
+    """
+    Find optimal Wind value where storage_drift ≈ 0 (Day 365 = Day 1),
+    keeping Solar fixed.
+    """
+    original_wind = max(0.0, float(fixed_values.get('ziel_911') or 0.0))
+
+    def _evaluate(wind_candidate):
+        result = calculate_365_days(
+            fixed_values['ziel_912'],
+            ws_data,
+            fixed_values,
+            wind_value=wind_candidate
+        )
+        return float(result['storage_drift']), result
+
+    # Robust bracket search: expand bounds until drift sign changes.
+    base_wind = max(original_wind, 1.0)
+    wind_low = max(0.0, base_wind * 0.5)
+    wind_high = max(base_wind * 1.5, wind_low + 1.0)
+
+    drift_low, result_low = _evaluate(wind_low)
+    drift_high, result_high = _evaluate(wind_high)
+
+    expansion_steps = 0
+    max_expansion_steps = 12
+    while drift_low * drift_high > 0 and expansion_steps < max_expansion_steps:
+        expansion_steps += 1
+
+        if drift_low < 0 and drift_high < 0:
+            # Need more Wind to move drift upward through zero.
+            wind_low, drift_low, result_low = wind_high, drift_high, result_high
+            wind_high = max(wind_high * 1.7, wind_high + 1.0)
+            drift_high, result_high = _evaluate(wind_high)
+        elif drift_low > 0 and drift_high > 0:
+            # Need less Wind to move drift downward through zero.
+            wind_high, drift_high, result_high = wind_low, drift_low, result_low
+            if wind_low <= 0:
+                break
+            wind_low = max(0.0, wind_low * 0.3)
+            drift_low, result_low = _evaluate(wind_low)
+        else:
+            break
+
+    # If no sign change exists in feasible range, return best endpoint.
+    if drift_low * drift_high > 0:
+        if abs(drift_low) <= abs(drift_high):
+            optimal_wind, optimal_result = wind_low, result_low
+        else:
+            optimal_wind, optimal_result = wind_high, result_high
+        return {
+            'original_wind': original_wind,
+            'optimal_wind': optimal_wind,
+            'wind_change': optimal_wind - original_wind,
+            'wind_change_pct': ((optimal_wind / original_wind) - 1) * 100 if original_wind > 0 else 0,
+            'iterations': expansion_steps + 1,
+            'result': optimal_result,
+        }
+
+    # Standard bisection within sign-changing bracket.
+    wind_mid = (wind_low + wind_high) / 2.0
+    optimal_result = result_low
+    bisection_iterations = 0
+
+    for iteration in range(max_iterations):
+        bisection_iterations = iteration + 1
+        wind_mid = (wind_low + wind_high) / 2.0
+        drift_mid, result_mid = _evaluate(wind_mid)
+        optimal_result = result_mid
+
+        if abs(drift_mid) < tolerance:
+            break
+
+        if drift_low * drift_mid <= 0:
+            wind_high = wind_mid
+            drift_high = drift_mid
+        else:
+            wind_low = wind_mid
+            drift_low = drift_mid
+
+    return {
+        'original_wind': original_wind,
+        'optimal_wind': wind_mid,
+        'wind_change': wind_mid - original_wind,
+        'wind_change_pct': ((wind_mid / original_wind) - 1) * 100 if original_wind > 0 else 0,
+        'iterations': expansion_steps + bisection_iterations,
+        'result': optimal_result,
+    }
+
+
 def get_ws_365_data(run_goal_seek=False):
     """
     Main function to get all WS 365-day data.
@@ -402,6 +515,45 @@ def calculate_required_landuse(optimal_solar):
         'fixed_solar': fixed_solar,
         'required_1212': required_1212,
         'yield_factor': yield_factor,
+        'required_landuse': required_landuse,
+        'current_landuse': current_landuse,
+        'landuse_change': required_landuse - current_landuse,
+    }
+
+
+def calculate_required_landuse_wind(optimal_wind):
+    """
+    Reverse-engineer LandUse (LU_6) needed to achieve optimal Wind (9.1.1).
+
+    Chain:
+    - 9.1.1 = 2.2.1.2.3 + 2.1.1.2.2
+    - 2.1.1.2.2 = (2.1.1 / 2.1.1.1) * 2.1.1.2.1 / 1000
+    - 2.1.1 = LU_6
+    """
+    from .models import LandUse
+
+    r_22123 = RenewableData.objects.get(code='2.2.1.2.3')
+    r_21111 = RenewableData.objects.get(code='2.1.1.1')
+    r_211121 = RenewableData.objects.get(code='2.1.1.2.1')
+    lu_6 = LandUse.objects.get(code='LU_6')
+
+    fixed_wind = r_22123.target_value or 0  # non-LU_6 wind component
+    factor_21111 = r_21111.target_value or 0
+    factor_211121 = r_211121.target_value or 0
+    current_landuse = lu_6.target_ha or 0
+
+    required_211122 = optimal_wind - fixed_wind
+    if factor_211121 > 0:
+        required_landuse = required_211122 * 1000 * factor_21111 / factor_211121
+    else:
+        required_landuse = 0
+
+    return {
+        'optimal_wind': optimal_wind,
+        'fixed_wind': fixed_wind,
+        'required_211122': required_211122,
+        'factor_21111': factor_21111,
+        'factor_211121': factor_211121,
         'required_landuse': required_landuse,
         'current_landuse': current_landuse,
         'landuse_change': required_landuse - current_landuse,
@@ -705,6 +857,11 @@ def apply_balanced_landuse():
 
             # Step 3: Update LU_2.1 in DB
             lu_21 = LandUse.objects.select_related('parent').get(code='LU_2.1')
+            required_landuse = _validate_required_landuse(
+                required_landuse,
+                lu_21.parent.target_ha if lu_21.parent else None,
+                'LU_2.1'
+            )
             lu_21.target_ha = required_landuse
             if lu_21.parent and lu_21.parent.target_ha and lu_21.parent.target_ha > 0:
                 lu_21.user_percent = (required_landuse / lu_21.parent.target_ha) * 100.0
@@ -799,6 +956,233 @@ def apply_balanced_landuse():
         'landuse_change': required_landuse - old_landuse,
         'optimal_solar': optimal_solar,
         'new_solar': new_912,
+        'storage_drift': final_drift,
+        'annual_electricity': annual_electricity,
+        'iterations': goal_seek_result['iterations'] if goal_seek_result else 0,
+        'convergence_cycles': completed_cycles,
+        'heat_balance': heat_balance,
+    }
+
+
+def apply_balanced_wind_landuse():
+    """
+    Run Goal Seek with Wind as variable, calculate required LU_6, and update database.
+
+    Flow mirrors apply_balanced_landuse(), but driver is Wind (9.1.1/LU_6)
+    instead of Solar (9.1.2/LU_2.1). Heat balancing remains identical.
+    """
+    from .models import LandUse, RenewableData
+    from django.db import transaction
+
+    max_convergence_cycles = 3
+    # Use tighter tolerance so Day1/Day365 also match in UI precision.
+    ws_drift_tolerance = 0.005
+    heat_gap_tolerance = 100.0
+
+    old_landuse = None
+    required_landuse = None
+    goal_seek_result = None
+    heat_balance = None
+    final_result = None
+    new_911 = None
+    completed_cycles = 0
+    optimal_wind = None
+
+    # Wind mode must not alter Solar/LU_2.1.
+    r912_guard = RenewableData.objects.get(code='9.1.2')
+    fixed_solar_912 = float(r912_guard.target_value or 0)
+    lu21_guard = LandUse.objects.get(code='LU_2.1')
+    fixed_lu21_target = float(lu21_guard.target_ha or 0)
+    fixed_lu21_percent = lu21_guard.user_percent
+
+    def _restore_frozen_solar_if_needed():
+        r912_now = RenewableData.objects.get(code='9.1.2')
+        if abs(float(r912_now.target_value or 0) - fixed_solar_912) > 1e-9:
+            r912_now.target_value = fixed_solar_912
+            r912_now.save(skip_cascade=True, update_fields=['target_value'])
+
+    with transaction.atomic():
+        for cycle_index in range(max_convergence_cycles):
+            cycle_no = cycle_index + 1
+            completed_cycles = cycle_no
+            print(f"🔁 Wind convergence cycle {cycle_no}/{max_convergence_cycles}")
+
+            # Step 1: Goal Seek on current WS inputs (Wind variable)
+            print("🔍 Running Wind Goal Seek...")
+            _restore_frozen_solar_if_needed()
+            ws_data = get_ws_base_data()
+            fixed_values = get_fixed_values()
+            fixed_values['ziel_912'] = fixed_solar_912
+            goal_seek_result = goal_seek_optimal_wind(
+                ws_data,
+                fixed_values,
+                tolerance=ws_drift_tolerance
+            )
+
+            optimal_wind = goal_seek_result['optimal_wind']
+            print(f"   ✅ Found optimal Wind: {optimal_wind:,.0f} GWh")
+            print(f"   ✅ Storage drift at optimal: {goal_seek_result['result']['storage_drift']:.2f} GWh")
+
+            # Step 2: Calculate required LU_6 from optimal wind
+            landuse_result = calculate_required_landuse_wind(optimal_wind)
+            required_landuse = landuse_result['required_landuse']
+            if old_landuse is None:
+                old_landuse = landuse_result['current_landuse']
+            print(
+                f"   📐 Required LU_6: {required_landuse:,.0f} ha "
+                f"(change: {required_landuse - (landuse_result['current_landuse'] or 0):+,.0f} ha)"
+            )
+
+            # Step 3: Update LU_6 in DB
+            lu_6 = LandUse.objects.select_related('parent').get(code='LU_6')
+            required_landuse = _validate_required_landuse(
+                required_landuse,
+                lu_6.parent.target_ha if lu_6.parent else None,
+                'LU_6'
+            )
+            lu_6.target_ha = required_landuse
+            if lu_6.parent and lu_6.parent.target_ha and lu_6.parent.target_ha > 0:
+                lu_6.user_percent = (required_landuse / lu_6.parent.target_ha) * 100.0
+            lu_6._skip_cascade = True
+            lu_6.save(update_fields=['target_ha', 'user_percent'])
+            print(f"✅ Updated LU_6 target_ha to {required_landuse:.2f} ha")
+
+            # Step 4: Recalculate local renewable chain LU_6 -> 2.1.1 -> 2.1.1.2.2 -> 9.1.1
+            print("🔄 Recalculating wind renewable chain...")
+            r_211 = RenewableData.objects.get(code='2.1.1')
+            r_211.target_value = required_landuse
+            r_211.save(skip_cascade=True)
+            print(f"   ✅ 2.1.1 = {required_landuse:,.0f} ha")
+
+            r_21111 = RenewableData.objects.get(code='2.1.1.1')
+            r_21112 = RenewableData.objects.get(code='2.1.1.2')
+            divisor_21111 = float(r_21111.target_value or 0)
+            new_21112 = (required_landuse / divisor_21111) if divisor_21111 > 0 else 0
+            r_21112.target_value = new_21112
+            r_21112.save(skip_cascade=True)
+            print(f"   ✅ 2.1.1.2 = {new_21112:,.0f}")
+
+            r_211121 = RenewableData.objects.get(code='2.1.1.2.1')
+            r_211122 = RenewableData.objects.get(code='2.1.1.2.2')
+            new_211122 = new_21112 * (r_211121.target_value or 0) / 1000
+            r_211122.target_value = new_211122
+            r_211122.save(skip_cascade=True)
+            print(f"   ✅ 2.1.1.2.2 = {new_211122:,.0f} GWh")
+
+            r_22123 = RenewableData.objects.get(code='2.2.1.2.3')
+            r_911 = RenewableData.objects.get(code='9.1.1')
+            new_911 = (r_22123.target_value or 0) + new_211122
+            r_911.target_value = new_911
+            r_911.save(skip_cascade=True)
+            print(f"   ✅ 9.1.1 = {new_911:,.0f} GWh")
+
+            # Step 5: WS calculation and sync 9.3.1 / 9.3.4 / 9.4.1
+            print("📊 Calculating WS 365 days with new Wind...")
+            ws_data = get_ws_base_data()
+            fixed_values = get_fixed_values()
+            fixed_values['ziel_912'] = fixed_solar_912
+            final_result = calculate_365_days(fixed_solar_912, ws_data, fixed_values)
+            update_renewable_from_ws365(final_result)
+
+            annual_electricity = final_result.get('annual_electricity', 0)
+            r941 = RenewableData.objects.get(code='9.4.1')
+            r941.target_value = annual_electricity
+            r941.is_fixed = True
+            r941.formula = None
+            r941.save(skip_cascade=True)
+            print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
+
+            # Step 6: Heat balancing (existing logic)
+            print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
+            heat_balance = _balance_heat_sectors_after_ws()
+            gw_after = heat_balance['after']['gebaeudewaerme']
+            pw_after = heat_balance['after']['prozesswaerme']
+            print(
+                f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
+                f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
+            )
+            print(
+                f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
+                f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
+            )
+
+            # Step 7: Re-check WS drift AFTER heat
+            ws_data_post_heat = get_ws_base_data()
+            fixed_values_post_heat = get_fixed_values()
+            fixed_values_post_heat['ziel_912'] = fixed_solar_912
+            _restore_frozen_solar_if_needed()
+            final_result = calculate_365_days(
+                fixed_solar_912,
+                ws_data_post_heat,
+                fixed_values_post_heat
+            )
+            update_renewable_from_ws365(final_result)
+
+            annual_electricity = final_result.get('annual_electricity', 0)
+            r941.target_value = annual_electricity
+            r941.save(skip_cascade=True, update_fields=['target_value'])
+
+            final_drift = final_result['storage_drift']
+            drift_ok = abs(final_drift) <= ws_drift_tolerance
+            heat_ok = (
+                abs(gw_after['gap']) <= heat_gap_tolerance and
+                abs(pw_after['gap']) <= heat_gap_tolerance
+            )
+            print(
+                f"   🔎 Post-heat WS drift: {final_drift:.2f} GWh "
+                f"(target ±{ws_drift_tolerance})"
+            )
+            if drift_ok and heat_ok:
+                print("   ✅ Converged: WS + heat both balanced")
+                break
+
+        # Guard-restore: keep Solar/LU_2.1 untouched in wind mode.
+        r912_now = RenewableData.objects.get(code='9.1.2')
+        if abs(float(r912_now.target_value or 0) - fixed_solar_912) > 1e-9:
+            r912_now.target_value = fixed_solar_912
+            r912_now.save(skip_cascade=True, update_fields=['target_value'])
+
+        lu21_now = LandUse.objects.get(code='LU_2.1')
+        lu21_changed = (
+            abs(float(lu21_now.target_ha or 0) - fixed_lu21_target) > 1e-9 or
+            lu21_now.user_percent != fixed_lu21_percent
+        )
+        if lu21_changed:
+            lu21_now.target_ha = fixed_lu21_target
+            lu21_now.user_percent = fixed_lu21_percent
+            lu21_now._skip_cascade = True
+            lu21_now.save(update_fields=['target_ha', 'user_percent'])
+
+        # Final WS recompute after any guard restore so day1/day365 and drift reflect DB truth.
+        ws_data_final = get_ws_base_data()
+        fixed_values_final = get_fixed_values()
+        fixed_values_final['ziel_912'] = fixed_solar_912
+        _restore_frozen_solar_if_needed()
+        final_result = calculate_365_days(
+            fixed_solar_912,
+            ws_data_final,
+            fixed_values_final
+        )
+        update_renewable_from_ws365(final_result)
+
+        annual_electricity = final_result.get('annual_electricity', 0)
+        r941 = RenewableData.objects.get(code='9.4.1')
+        r941.target_value = annual_electricity
+        r941.save(skip_cascade=True, update_fields=['target_value'])
+
+    final_drift = final_result['storage_drift'] if final_result else 0
+    annual_electricity = final_result.get('annual_electricity', 0) if final_result else 0
+    print(f"\n✅ WIND BALANCE COMPLETE")
+    print(f"   Storage Drift: {final_drift:.2f} GWh (target: 0)")
+    print(f"   Annual Electricity (9.4.1): {annual_electricity:,.0f} GWh")
+
+    return {
+        'success': True,
+        'old_landuse': old_landuse,
+        'new_landuse': required_landuse,
+        'landuse_change': required_landuse - old_landuse,
+        'optimal_wind': optimal_wind,
+        'new_wind': new_911,
         'storage_drift': final_drift,
         'annual_electricity': annual_electricity,
         'iterations': goal_seek_result['iterations'] if goal_seek_result else 0,

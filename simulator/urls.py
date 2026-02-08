@@ -36,6 +36,7 @@ urlpatterns = [
     path('api/ws/data/', views.ws_api_data, name='ws_api_data'),
     path('api/ws/goal-seek/', views.ws_api_goal_seek, name='ws_api_goal_seek'),
     path('api/ws/apply-balance/', views.ws_api_apply_balance, name='ws_api_apply_balance'),
+    path('api/ws/apply-balance-wind/', views.ws_api_apply_balance_wind, name='ws_api_apply_balance_wind'),
     
     # API Endpoints
     path('api/update-user-percent/', views.update_user_percent, name='update_user_percent'),
