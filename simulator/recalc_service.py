@@ -148,13 +148,8 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
     base_codes = base_codes - WS_DEPENDENT_CODES
     
     dependent_items = list(RenewableData.objects.filter(code__in=base_codes))
-    
-    # Sort by CODE LENGTH DESCENDING - longest first (children before parents)
-    # 10.3.1.1 (-4), 10.3.1 (-3), 10.3 (-2), 10.1 (-2 but 10.1 < 10.3)
-    # Then by code descending within same length (10.9 before 10.1)
-    dependent_items.sort(key=lambda x: (-len(x.code.split('.')), x.code), reverse=False)
-    # Correction: Sort children first (more dots = child), then reverse alpha
-    dependent_items.sort(key=lambda x: (-len(x.code), x.code), reverse=False)
+    # Children first (more specific codes first), then lexicographically.
+    dependent_items.sort(key=lambda x: (-len(x.code.split('.')), x.code))
 
     # Build shared lookups once and keep them updated as we recalc
     landuse_data = {
@@ -177,15 +172,15 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
     }
 
     calculator = RenewableCalculator()
+    calculator.set_data_sources(landuse_data, verbrauch_data, renewable_data)
+    status_lookup = calculator.cache.get("status_lookup", {})
+    target_lookup = calculator.cache.get("target_lookup", {})
     updated_count = 0
-    
-    # Run 2 PASSES - sorted order (children first) should make 1 pass enough
-    # but 2 passes handles any edge cases without being too slow
-    for pass_num in range(1, 3):
-        for item in dependent_items:
-            # Refresh lookups so newly computed values are seen by downstream formulas
-            calculator.set_data_sources(landuse_data, verbrauch_data, renewable_data)
 
+    # Max 2 passes with early break. First pass usually converges.
+    for _ in range(2):
+        pass_updates = 0
+        for item in dependent_items:
             # Fail-soft during bulk recalc so a single missing formula does not abort.
             calc_status, calc_target = calculator.calculate(item.code, fail_fast=False)
 
@@ -200,12 +195,26 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
 
             if values_changed:
                 item.save(skip_cascade=True, skip_verbrauch_recalc=True)
-                # Update in-memory lookup so subsequent items see new values
                 renewable_data[item.code] = {
                     "status_value": item.status_value or 0,
                     "target_value": item.target_value or 0,
                 }
+                # Keep evaluator lookups current without rebuilding all dictionaries.
+                key = f"RenewableData_{item.code}"
+                status_lookup[key] = float(item.status_value or 0)
+                target_lookup[key] = float(item.target_value or 0)
+
+                # Invalidate computed formula cache but keep hot lookups.
+                calculator.cache = {
+                    "status_lookup": status_lookup,
+                    "target_lookup": target_lookup,
+                }
+
+                pass_updates += 1
                 updated_count += 1
+
+        if pass_updates == 0:
+            break
 
     return updated_count
 

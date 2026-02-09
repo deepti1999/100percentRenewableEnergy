@@ -358,7 +358,7 @@ document.addEventListener('DOMContentLoaded', function() {
         throw new Error(text || `Request failed with status ${response.status}`);
     }
 
-    function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
+    function fetchWithTimeout(url, options = {}, timeoutMs = 420000) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         return fetch(url, { ...options, signal: controller.signal })
@@ -427,7 +427,7 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Berechnung läuft...';
         
-        fetchWithTimeout('{% url "simulator:ws_api_goal_seek" %}', {}, 120000)
+        fetchWithTimeout('{% url "simulator:ws_api_goal_seek" %}', {}, 420000)
             .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
@@ -466,7 +466,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             }
-        }, 180000)
+        }, 420000)
             .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
@@ -524,7 +524,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             }
-        }, 180000)
+        }, 420000)
             .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
