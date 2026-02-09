@@ -397,6 +397,20 @@
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalculating...';
 
+        async function parseJsonOrError(response) {
+            const raw = await response.text();
+            let data = {};
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                throw new Error(`Server returned invalid response (HTTP ${response.status}).`);
+            }
+            if (!response.ok || data.status === 'error') {
+                throw new Error(data.error || data.message || `HTTP error: ${response.status}`);
+            }
+            return data;
+        }
+
         try {
             // Recalculate renewable values only (no WS/Verbrauch recalculation)
             const response = await fetch("{% url 'simulator:recalc_renewables' %}", {
@@ -408,11 +422,7 @@
                 body: JSON.stringify({})
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error: ${response.status}`);
-            }
-
-            const data = await response.json();
+            const data = await parseJsonOrError(response);
             console.log('Recalculation completed:', data);
 
             // Reload page with run_id to show updated values

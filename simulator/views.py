@@ -2721,33 +2721,44 @@ def run_renewables_recalc_view(request):
     This includes WS 365 sync for 9.3.1/9.3.4 so one click reaches final values.
     """
     import time
+    import traceback
 
-    start = time.perf_counter()
-    recalc_stats = unified_recalc_all()
-    duration_ms = int((time.perf_counter() - start) * 1000)
+    try:
+        start = time.perf_counter()
+        recalc_stats = unified_recalc_all()
+        duration_ms = int((time.perf_counter() - start) * 1000)
 
-    summary = {
-        "duration_ms": duration_ms,
-        "renewables_updated": recalc_stats.get("final_renewables", 0),
-        "input_renewables": recalc_stats.get("input_renewables", 0),
-        "ws365_updated": recalc_stats.get("ws365_updated", False),
-        "scope": "renewables_unified",
-    }
-    run = CalculationRun.objects.create(
-        duration_ms=duration_ms,
-        summary=summary,
-        triggered_by=request.user.username,
-    )
-    request.session["latest_run_id"] = run.id
-    return JsonResponse(
-        {
-            "status": "ok",
-            "run_id": run.id,
+        summary = {
             "duration_ms": duration_ms,
-            "summary": summary,
-            "created_at": run.created_at.isoformat(),
+            "renewables_updated": recalc_stats.get("final_renewables", 0),
+            "input_renewables": recalc_stats.get("input_renewables", 0),
+            "ws365_updated": recalc_stats.get("ws365_updated", False),
+            "scope": "renewables_unified",
         }
-    )
+        run = CalculationRun.objects.create(
+            duration_ms=duration_ms,
+            summary=summary,
+            triggered_by=request.user.username,
+        )
+        request.session["latest_run_id"] = run.id
+        return JsonResponse(
+            {
+                "status": "ok",
+                "run_id": run.id,
+                "duration_ms": duration_ms,
+                "summary": summary,
+                "created_at": run.created_at.isoformat(),
+            }
+        )
+    except Exception as exc:
+        traceback.print_exc()
+        return JsonResponse(
+            {
+                "status": "error",
+                "error": f"Renewables recalculation failed: {exc}",
+            },
+            status=500,
+        )
 
 
 @csrf_exempt
@@ -3306,8 +3317,9 @@ def _compute_ws_balance_runtime_limit_seconds(summary):
         maximum=24,
     )
     base_runtime = _coerce_float(
-        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "120"),
-        default=120.0,
+        # Keep stale-run detection tolerant to transient dyno/network jitter.
+        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "180"),
+        default=180.0,
         minimum=60.0,
     )
     per_cycle_runtime = _coerce_float(
@@ -3461,10 +3473,28 @@ def ws_api_start_balance_job(request):
         age_seconds = max(0.0, (timezone.now() - running_job.created_at).total_seconds())
         max_runtime = _compute_ws_balance_runtime_limit_seconds(running_summary)
         if age_seconds <= max_runtime:
+            running_mode = (running_summary.get('mode') or 'solar').lower()
+            if running_mode == mode:
+                # Same-mode run is already active: return its id so UI can continue polling.
+                return JsonResponse({
+                    'success': True,
+                    'status': 'running',
+                    'run_id': running_job.id,
+                    'mode': running_mode,
+                    'enable_heat_balance': running_summary.get('enable_heat_balance', enable_heat_balance),
+                    'max_convergence_cycles': running_summary.get('max_convergence_cycles', max_convergence_cycles),
+                    'heat_profile': running_summary.get('heat_profile', heat_profile),
+                    'existing': True,
+                    'message': (
+                        f'Resuming running WS balance (run {running_job.id}, '
+                        f'{int(age_seconds)}s).'
+                    ),
+                })
             return JsonResponse({
                 'success': False,
                 'status': 'running',
                 'run_id': running_job.id,
+                'mode': running_summary.get('mode'),
                 'error': (
                     f'Another WS balance is still running (run {running_job.id}, '
                     f'{int(age_seconds)}s). Please wait for it to finish.'
