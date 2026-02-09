@@ -3050,7 +3050,9 @@ def save_verbrauch_user_input(request):
         # Update user_percent
         old_value = item.user_percent
         item.user_percent = float(user_percent) if user_percent is not None else None
-        item.save()  # This will trigger the cascade via signal
+        # Keep single-cell save fast for hosted environments:
+        # do not run full dependent cascade here (user runs explicit recalc actions).
+        item.save(skip_cascade=True)
         
         # Get rebalancing info (if this was a percentage in a group)
         rebalanced = {}
