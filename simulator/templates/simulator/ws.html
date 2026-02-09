@@ -349,6 +349,33 @@ document.addEventListener('DOMContentLoaded', function() {
         return Number(num.toFixed(digits));
     }
 
+    async function parseApiResponse(response) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            return response.json();
+        }
+        const text = await response.text();
+        throw new Error(text || `Request failed with status ${response.status}`);
+    }
+
+    function fetchWithTimeout(url, options = {}, timeoutMs = 180000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(url, { ...options, signal: controller.signal })
+            .finally(() => clearTimeout(timeoutId));
+    }
+
+    function formatApiError(error) {
+        const raw = String(error && error.message ? error.message : error || '');
+        if (raw.includes('AbortError')) {
+            return 'Die Anfrage hat zu lange gedauert (Timeout). Bitte erneut versuchen.';
+        }
+        if (raw.includes('CSRF verification failed') || raw.includes('Origin checking failed')) {
+            return 'Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden und erneut versuchen.';
+        }
+        return raw.length > 500 ? (raw.slice(0, 500) + ' ...') : raw;
+    }
+
     function trackAutoLandUseChange(change) {
         try {
             if (!change || change.old_ha === undefined || change.new_ha === undefined) {
@@ -400,8 +427,8 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Berechnung läuft...';
         
-        fetch('{% url "simulator:ws_api_goal_seek" %}')
-            .then(response => response.json())
+        fetchWithTimeout('{% url "simulator:ws_api_goal_seek" %}', {}, 120000)
+            .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
                     alert('Goal Seek abgeschlossen!\n\n' +
@@ -415,7 +442,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                alert('Fehler beim Goal Seek: ' + error);
+                alert('Fehler beim Goal Seek: ' + formatApiError(error));
             })
             .finally(() => {
                 btn.disabled = false;
@@ -433,14 +460,14 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
         
-        fetch('{% url "simulator:ws_api_apply_balance" %}', {
+        fetchWithTimeout('{% url "simulator:ws_api_apply_balance" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             }
-        })
-            .then(response => response.json())
+        }, 180000)
+            .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
                     trackAutoLandUseChange({
@@ -473,7 +500,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                alert('Fehler beim Anwenden: ' + error);
+                alert('Fehler beim Anwenden: ' + formatApiError(error));
             })
             .finally(() => {
                 btn.disabled = false;
@@ -491,14 +518,14 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
 
-        fetch('{% url "simulator:ws_api_apply_balance_wind" %}', {
+        fetchWithTimeout('{% url "simulator:ws_api_apply_balance_wind" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             }
-        })
-            .then(response => response.json())
+        }, 180000)
+            .then(parseApiResponse)
             .then(data => {
                 if (data.success) {
                     trackAutoLandUseChange({
@@ -531,7 +558,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                alert('Fehler beim Anwenden (Wind): ' + error);
+                alert('Fehler beim Anwenden (Wind): ' + formatApiError(error));
             })
             .finally(() => {
                 btn.disabled = false;

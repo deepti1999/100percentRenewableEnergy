@@ -1114,50 +1114,26 @@ def verbrauch_view(request):
 
 @require_http_methods(["POST"])
 def save_and_recalculate_verbrauch(request):
-    """Recalculate ALL Verbrauch values using fresh database data"""
-    from .models import VerbrauchData
+    """Fast recalc for Verbrauch table only (no heavy renewable cascade)."""
     from django.http import JsonResponse
-    import json
-    
+    import time
+
     try:
-        # Get ALL calculated items ordered by hierarchy (deepest first)
-        def get_hierarchy_level(code):
-            return code.count('.')
-        
-        calculated_items = list(VerbrauchData.objects.filter(is_calculated=True))
-        calculated_items.sort(key=lambda x: get_hierarchy_level(x.code), reverse=True)
-        
-        updated_count = 0
-        
-        # Recalculate EVERY calculated item using fresh database
-        for item in calculated_items:
-            try:
-                # Force fresh read from database
-                item.refresh_from_db()
-                
-                # Calculate new values
-                new_status = item.calculate_value()
-                new_ziel = item.calculate_ziel_value()
-                
-                # Always update regardless of whether value changed
-                if new_status is not None:
-                    item.status = new_status
-                if new_ziel is not None:
-                    item.ziel = new_ziel
-                
-                # Save without cascade
-                item.save(skip_cascade=True)
-                updated_count += 1
-                
-            except Exception as e:
-                print(f"Error recalculating {item.code}: {e}")
-        
+        from simulator.verbrauch_recalculator import recalc_all_verbrauch
+
+        start = time.perf_counter()
+        updated_codes = recalc_all_verbrauch(
+            trigger_code="save_recalc_btn",
+            propagate_renewables=False,
+        )
+        duration_ms = int((time.perf_counter() - start) * 1000)
+
         return JsonResponse({
             'success': True,
-            'message': f'Recalculated ALL {updated_count} calculated values',
-            'updated_count': updated_count
+            'message': f'Recalculated {len(updated_codes)} Verbrauch values',
+            'updated_count': len(updated_codes),
+            'duration_ms': duration_ms,
         })
-        
     except Exception as e:
         return JsonResponse({
             'success': False,
@@ -2972,13 +2948,13 @@ def recalc_verbrauch_view(request):
         from simulator.verbrauch_recalculator import recalc_all_verbrauch
         
         # Recalculate all verbrauch items
-        updated_count = recalc_all_verbrauch()
+        updated_codes = recalc_all_verbrauch(propagate_renewables=False)
         
         duration_ms = int((time.time() - start) * 1000)
         
         return JsonResponse({
             'status': 'ok',
-            'updated': updated_count,
+            'updated': len(updated_codes),
             'duration_ms': duration_ms,
         })
     except Exception as e:
