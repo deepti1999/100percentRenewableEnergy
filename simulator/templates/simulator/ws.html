@@ -440,6 +440,21 @@ document.addEventListener('DOMContentLoaded', function() {
         return data;
     }
 
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...options, signal: controller.signal });
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -448,10 +463,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const maxPolls = 300; // ~5 minutes at 1s polling
 
         for (let poll = 1; poll <= maxPolls; poll++) {
-            const statusResponse = await fetch(`/api/ws/balance-job/${runId}/`, {
+            const statusResponse = await fetchWithTimeout(`/api/ws/balance-job/${runId}/`, {
                 method: 'GET',
                 headers: { 'X-CSRFToken': '{{ csrf_token }}' }
-            });
+            }, 15000);
             const statusData = await parseJsonResponse(statusResponse);
 
             if (statusData.status === 'running') {
@@ -507,21 +522,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('applyBalanceBtn').addEventListener('click', function() {
         const btn = this;
+        const defaultHtml = '<i class="fas fa-balance-scale me-1"></i>Balance by Solar';
         if (!confirm('Möchten Sie LU_2.1 auf den balancierten Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
             return;
         }
         
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
+        let uiFailsafe = setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = defaultHtml;
+            uiFailsafe = null;
+            alert('Balance-Anfrage im Browser-Timeout. Der Serverjob kann weiterlaufen. Bitte Seite aktualisieren und erneut prüfen.');
+        }, 190000);
         
-        fetch('{% url "simulator:ws_api_start_balance_job" %}', {
+        fetchWithTimeout('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             },
             body: JSON.stringify({ mode: 'solar' })
-        })
+        }, 20000)
             .then((response) => parseJsonResponse(response))
             .then((startData) => waitForBalanceJob(startData.run_id, 'solar', btn))
             .then(data => {
@@ -535,29 +557,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Fehler beim Anwenden: ' + (error?.message || error));
             })
             .finally(() => {
+                if (uiFailsafe) {
+                    clearTimeout(uiFailsafe);
+                }
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-balance-scale me-1"></i>Balance by Solar';
+                btn.innerHTML = defaultHtml;
             });
     });
 
     // Apply Wind Balance Button
     document.getElementById('applyWindBalanceBtn').addEventListener('click', function() {
         const btn = this;
+        const defaultHtml = '<i class="fas fa-wind me-1"></i>Balance by Wind';
         if (!confirm('Möchten Sie LU_6 auf den balancierten Wind-Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
             return;
         }
 
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
+        let uiFailsafe = setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = defaultHtml;
+            uiFailsafe = null;
+            alert('Wind-Balance-Anfrage im Browser-Timeout. Der Serverjob kann weiterlaufen. Bitte Seite aktualisieren und erneut prüfen.');
+        }, 190000);
 
-        fetch('{% url "simulator:ws_api_start_balance_job" %}', {
+        fetchWithTimeout('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
             },
             body: JSON.stringify({ mode: 'wind' })
-        })
+        }, 20000)
             .then((response) => parseJsonResponse(response))
             .then((startData) => waitForBalanceJob(startData.run_id, 'wind', btn))
             .then(data => {
@@ -571,8 +603,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Fehler beim Anwenden (Wind): ' + (error?.message || error));
             })
             .finally(() => {
+                if (uiFailsafe) {
+                    clearTimeout(uiFailsafe);
+                }
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-wind me-1"></i>Balance by Wind';
+                btn.innerHTML = defaultHtml;
             });
     });
     
