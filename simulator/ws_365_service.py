@@ -6,6 +6,7 @@ Provides real-time recalculation when inputs change.
 """
 
 import math
+import os
 
 from .models import VerbrauchData, RenewableData
 from .ws_models import WSData
@@ -813,9 +814,11 @@ def apply_balanced_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
     
-    max_convergence_cycles = 3
+    # Keep HTTP request under Heroku's 30s router timeout.
+    max_convergence_cycles = 1
     ws_drift_tolerance = 0.1
     heat_gap_tolerance = 100.0
+    enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
 
     old_landuse = None
     required_landuse = None
@@ -914,19 +917,33 @@ def apply_balanced_landuse():
             r941.save(skip_cascade=True)
             print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
 
-            # Step 6: Heat balancing (existing logic)
-            print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-            heat_balance = _balance_heat_sectors_after_ws()
-            gw_after = heat_balance['after']['gebaeudewaerme']
-            pw_after = heat_balance['after']['prozesswaerme']
-            print(
-                f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
-                f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
-            )
-            print(
-                f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
-                f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
-            )
+            # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
+            if enable_heat_balance:
+                print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
+                heat_balance = _balance_heat_sectors_after_ws()
+                gw_after = heat_balance['after']['gebaeudewaerme']
+                pw_after = heat_balance['after']['prozesswaerme']
+                print(
+                    f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
+                    f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
+                )
+                print(
+                    f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
+                    f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
+                )
+            else:
+                after_totals = _get_sector_totals()
+                heat_balance = {
+                    'before': after_totals,
+                    'after': after_totals,
+                    'adjustments': {
+                        'skipped': True,
+                        'reason': 'WS_ENABLE_HEAT_BALANCE=false (timeout-safe mode)',
+                    },
+                }
+                gw_after = heat_balance['after']['gebaeudewaerme']
+                pw_after = heat_balance['after']['prozesswaerme']
+                print("⚠️ Skipping heat-sector balancing for timeout-safe request handling.")
 
             # Step 7: Re-check WS drift AFTER heat (because 2.8 changes WS demand inputs)
             ws_data_post_heat = get_ws_base_data()
@@ -947,7 +964,7 @@ def apply_balanced_landuse():
             heat_ok = (
                 abs(gw_after['gap']) <= heat_gap_tolerance and
                 abs(pw_after['gap']) <= heat_gap_tolerance
-            )
+            ) if enable_heat_balance else True
             print(
                 f"   🔎 Post-heat WS drift: {final_drift:.2f} GWh "
                 f"(target ±{ws_drift_tolerance})"
@@ -992,10 +1009,12 @@ def apply_balanced_wind_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
 
-    max_convergence_cycles = 3
+    # Keep HTTP request under Heroku's 30s router timeout.
+    max_convergence_cycles = 1
     # Use tighter tolerance so Day1/Day365 also match in UI precision.
     ws_drift_tolerance = 0.005
     heat_gap_tolerance = 100.0
+    enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
 
     old_landuse = None
     required_landuse = None
@@ -1124,19 +1143,33 @@ def apply_balanced_wind_landuse():
             r941.save(skip_cascade=True)
             print(f"   ✅ 9.4.1 = {annual_electricity:,.0f} GWh (annual electricity from diagram, fixed)")
 
-            # Step 6: Heat balancing (existing logic)
-            print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-            heat_balance = _balance_heat_sectors_after_ws()
-            gw_after = heat_balance['after']['gebaeudewaerme']
-            pw_after = heat_balance['after']['prozesswaerme']
-            print(
-                f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
-                f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
-            )
-            print(
-                f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
-                f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
-            )
+            # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
+            if enable_heat_balance:
+                print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
+                heat_balance = _balance_heat_sectors_after_ws()
+                gw_after = heat_balance['after']['gebaeudewaerme']
+                pw_after = heat_balance['after']['prozesswaerme']
+                print(
+                    f"   ✅ Gebäudewärme gap: {gw_after['gap']:.2f} GWh "
+                    f"(demand {gw_after['demand']:,.0f} / supply {gw_after['supply']:,.0f})"
+                )
+                print(
+                    f"   ✅ Prozesswärme gap: {pw_after['gap']:.2f} GWh "
+                    f"(demand {pw_after['demand']:,.0f} / supply {pw_after['supply']:,.0f})"
+                )
+            else:
+                after_totals = _get_sector_totals()
+                heat_balance = {
+                    'before': after_totals,
+                    'after': after_totals,
+                    'adjustments': {
+                        'skipped': True,
+                        'reason': 'WS_ENABLE_HEAT_BALANCE=false (timeout-safe mode)',
+                    },
+                }
+                gw_after = heat_balance['after']['gebaeudewaerme']
+                pw_after = heat_balance['after']['prozesswaerme']
+                print("⚠️ Skipping heat-sector balancing for timeout-safe request handling.")
 
             # Step 7: Re-check WS drift AFTER heat
             ws_data_post_heat = get_ws_base_data()
@@ -1159,7 +1192,7 @@ def apply_balanced_wind_landuse():
             heat_ok = (
                 abs(gw_after['gap']) <= heat_gap_tolerance and
                 abs(pw_after['gap']) <= heat_gap_tolerance
-            )
+            ) if enable_heat_balance else True
             print(
                 f"   🔎 Post-heat WS drift: {final_drift:.2f} GWh "
                 f"(target ±{ws_drift_tolerance})"

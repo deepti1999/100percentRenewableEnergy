@@ -440,7 +440,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 'X-CSRFToken': '{{ csrf_token }}'
             }
         })
-            .then(response => response.json())
+            .then(async (response) => {
+                const raw = await response.text();
+                let data = null;
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch (e) {
+                    throw new Error(
+                        `Server returned non-JSON response (HTTP ${response.status}). ` +
+                        'Request likely timed out.'
+                    );
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                return data;
+            })
             .then(data => {
                 if (data.success) {
                     trackAutoLandUseChange({
@@ -473,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                alert('Fehler beim Anwenden: ' + error);
+                alert('Fehler beim Anwenden: ' + (error?.message || error));
             })
             .finally(() => {
                 btn.disabled = false;
@@ -498,7 +513,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 'X-CSRFToken': '{{ csrf_token }}'
             }
         })
-            .then(response => response.json())
+            .then(async (response) => {
+                const raw = await response.text();
+                let data = null;
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch (e) {
+                    throw new Error(
+                        `Server returned non-JSON response (HTTP ${response.status}). ` +
+                        'Request likely timed out.'
+                    );
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                return data;
+            })
             .then(data => {
                 if (data.success) {
                     trackAutoLandUseChange({
@@ -531,7 +561,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                alert('Fehler beim Anwenden (Wind): ' + error);
+                alert('Fehler beim Anwenden (Wind): ' + (error?.message || error));
             })
             .finally(() => {
                 btn.disabled = false;
