@@ -483,7 +483,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function waitForBalanceJob(runId, mode, btn) {
-        const maxPolls = 300; // ~5 minutes at 1s polling
+        const maxPolls = 120; // ~2 minutes at 1s polling
 
         for (let poll = 1; poll <= maxPolls; poll++) {
             const statusResponse = await fetchWithTimeout(`/api/ws/balance-job/${runId}/`, {
@@ -524,7 +524,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.heat_balance && data.heat_balance.after) {
             const gw = data.heat_balance.after.gebaeudewaerme;
             const pw = data.heat_balance.after.prozesswaerme;
-            sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
+            sectorInfo = '\nGebäudewärme Gap (2.8.0-10.4.2): ' + gw.gap.toFixed(2) + ' GWh' +
                          '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
         }
 
@@ -557,6 +557,7 @@ document.addEventListener('DOMContentLoaded', function() {
         wsBalanceInFlight = true;
         setRunControlsDisabled(true);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
+        // Keep browser-side failsafe aligned with polling window (maxPolls ~2 min).
         let uiFailsafe = setTimeout(() => {
             wsBalanceInFlight = false;
             setRunControlsDisabled(false);
@@ -564,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.innerHTML = defaultHtml;
             uiFailsafe = null;
             alert('Balance-Anfrage im Browser-Timeout. Der Serverjob kann weiterlaufen. Bitte Seite aktualisieren und erneut prüfen.');
-        }, 190000);
+        }, 120000);
         
         fetchWithTimeout('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',
@@ -612,6 +613,7 @@ document.addEventListener('DOMContentLoaded', function() {
         wsBalanceInFlight = true;
         setRunControlsDisabled(true);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
+        // Keep browser-side failsafe aligned with polling window (maxPolls ~2 min).
         let uiFailsafe = setTimeout(() => {
             wsBalanceInFlight = false;
             setRunControlsDisabled(false);
@@ -619,7 +621,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.innerHTML = defaultHtml;
             uiFailsafe = null;
             alert('Wind-Balance-Anfrage im Browser-Timeout. Der Serverjob kann weiterlaufen. Bitte Seite aktualisieren und erneut prüfen.');
-        }, 190000);
+        }, 120000);
 
         fetchWithTimeout('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',

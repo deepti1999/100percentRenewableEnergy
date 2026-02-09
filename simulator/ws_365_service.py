@@ -565,17 +565,17 @@ def calculate_required_landuse_wind(optimal_wind):
 def _get_sector_totals():
     """
     Read the live sector totals used by the active pages:
-    - Demand: Verbrauch 2.10 (Gebäudewärme), 3.7 (Prozesswärme)
-    - Supply: Renewable 10.4 (Gebäudewärme), 10.5 (Prozesswärme)
+    - Demand: Verbrauch 2.8.0 (Gebäudewärme), 3.7 (Prozesswärme)
+    - Supply: Renewable 10.4.2 (Gebäudewärme), 10.5 (Prozesswärme)
     """
-    v210 = VerbrauchData.objects.get(code='2.10')
+    v280 = VerbrauchData.objects.get(code='2.8.0')
     v37 = VerbrauchData.objects.get(code='3.7')
-    r104 = RenewableData.objects.get(code='10.4')
+    r1042 = RenewableData.objects.get(code='10.4.2')
     r105 = RenewableData.objects.get(code='10.5')
 
-    gw_demand = float(v210.ziel or 0)
+    gw_demand = float(v280.ziel or 0)
     pw_demand = float(v37.ziel or 0)
-    gw_supply = float(r104.target_value or 0)
+    gw_supply = float(r1042.target_value or 0)
     pw_supply = float(r105.target_value or 0)
 
     return {
@@ -595,7 +595,7 @@ def _get_sector_totals():
 def _balance_heat_sectors_after_ws(mode="quick"):
     """
     After electricity/WS balancing, align heat-sector totals:
-    - Gebäudewärme: 10.4 (supply) to 2.10 (demand) via Verbrauch 2.8 ziel
+    - Gebäudewärme: 10.4.2 (supply) to 2.8.0 (demand) via Verbrauch 2.8 ziel
     - Prozesswärme: 10.5 (supply) to 3.7 (demand) via 5.4.1 target percentage
 
     Returns detailed before/after values for API/UI visibility.
@@ -676,6 +676,7 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         tolerance: float,
         evaluator,
         seed_values=None,
+        max_iterations=None,
     ):
         """
         Deterministic bounded scalar solver:
@@ -710,7 +711,8 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         def _best_point():
             return min(cache.values(), key=lambda item: abs(item[1]))
 
-        for iteration in range(solver_iterations):
+        iteration_limit = solver_iterations if max_iterations is None else max(1, int(max_iterations))
+        for iteration in range(iteration_limit):
             if _deadline_exceeded():
                 break
             best_x, best_gap, _ = _best_point()
@@ -797,7 +799,7 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         gap_now = float(settled['gebaeudewaerme']['gap'])
         return value_28, gap_now, settled
 
-    gw_gap_tolerance = 100.0
+    gw_gap_tolerance = float(os.environ.get("WS_HEAT_GW_GAP_TOLERANCE", "1.0"))
     pw_gap_tolerance = 100.0
 
     # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
@@ -845,6 +847,10 @@ def _balance_heat_sectors_after_ws(mode="quick"):
             gw_seeds = []
             if gw_demand > 0 and final_28 > 0:
                 gw_seeds.append(final_28 * (gw_supply / gw_demand))
+            # Closed-form seed from the direct chain: 2.8.0 = 2.6 * 2.8 / 100.
+            v26_base = float(VerbrauchData.objects.get(code='2.6').ziel or 0.0)
+            if v26_base > 0:
+                gw_seeds.append(_clamp_28((gw_supply * 100.0) / v26_base))
             solved_28, solved_gw_gap, solved_totals = _bounded_scalar_solve(
                 current_value=final_28,
                 lower=0.0,
@@ -852,6 +858,7 @@ def _balance_heat_sectors_after_ws(mode="quick"):
                 tolerance=gw_gap_tolerance,
                 evaluator=apply_28_and_get_gap,
                 seed_values=gw_seeds,
+                max_iterations=3,
             )
             final_28 = solved_28
             after = solved_totals
@@ -890,6 +897,46 @@ def _balance_heat_sectors_after_ws(mode="quick"):
     final_gw_gap = float(after['gebaeudewaerme']['gap'])
     final_pw_gap = float(after['prozesswaerme']['gap'])
 
+    # Apply one closed-form fine-tune step for 2.8 so 2.8.0 aligns with 10.4.2:
+    # 2.8.0 = 2.6 * 2.8 / 100  =>  2.8 = 10.4.2 * 100 / 2.6
+    exact_28_adjustment = {
+        'applied': False,
+        'old_ziel_percent': final_28,
+        'new_ziel_percent': final_28,
+        'delta_percent': 0.0,
+        'reason': '',
+    }
+    if not _deadline_exceeded():
+        v26_exact = float(VerbrauchData.objects.get(code='2.6').ziel or 0.0)
+        if v26_exact > 0 and abs(final_gw_gap) > 1e-6:
+            gw_supply_now = float(after['gebaeudewaerme']['supply'] or 0.0)
+            exact_28 = _clamp_28((gw_supply_now * 100.0) / v26_exact)
+            if abs(exact_28 - final_28) > 1e-9:
+                old_28_exact = final_28
+                old_gap_exact = final_gw_gap
+                solved_28, solved_gap, solved_totals = apply_28_and_get_gap(exact_28, settle_rounds=1)
+                if abs(solved_gap) <= abs(old_gap_exact) + 1e-6:
+                    final_28 = solved_28
+                    after = solved_totals
+                    final_gw_gap = float(after['gebaeudewaerme']['gap'])
+                    final_pw_gap = float(after['prozesswaerme']['gap'])
+                    exact_28_adjustment.update({
+                        'applied': True,
+                        'old_ziel_percent': old_28_exact,
+                        'new_ziel_percent': final_28,
+                        'delta_percent': final_28 - old_28_exact,
+                    })
+                else:
+                    # Guardrail: keep the previous best candidate if exact step worsens the gap.
+                    reverted_28, _, reverted_totals = apply_28_and_get_gap(old_28_exact, settle_rounds=1)
+                    final_28 = reverted_28
+                    after = reverted_totals
+                    final_gw_gap = float(after['gebaeudewaerme']['gap'])
+                    final_pw_gap = float(after['prozesswaerme']['gap'])
+                    exact_28_adjustment['reason'] = 'Skipped exact step (would worsen GW gap)'
+        elif v26_exact <= 0:
+            exact_28_adjustment['reason'] = 'Skipped exact step (2.6 ziel <= 0)'
+
     process_adjustment.update({
         'new_5_4_1_percent': final_541,
         'delta_percent': final_541 - old_541,
@@ -912,6 +959,8 @@ def _balance_heat_sectors_after_ws(mode="quick"):
                 'final_gap': final_gw_gap,
                 'applied': abs(final_28 - old_28) > 1e-9,
                 'solver_iterations': gw_solver_meta['iterations'],
+                'equation': '2.8.0 = 2.6 * 2.8 / 100',
+                'exact_math_adjustment': exact_28_adjustment,
             },
             'renewable_8_2_fixed': {
                 'old_target': old_82_target,
@@ -934,7 +983,7 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     3. Updates LU_2.1 in database
     4. Recalculates ONLY the renewable chain (LU_2.1 -> 1.2.1.2 -> 9.1.2)
     5. Updates 9.3.1 and 9.3.4 from WS 365 calculation
-    6. Balances heat sectors (10.4↔2.10 and 10.5↔3.7) using active live formulas
+    6. Balances heat sectors (10.4.2↔2.8.0 and 10.5↔3.7) using active live formulas
     
     NO WSData recalculation - all balance logic comes from ws_365_service.
     
@@ -947,13 +996,19 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     if max_convergence_cycles is None:
         # Keep sync HTTP request under Heroku's router timeout by default.
         max_convergence_cycles = 1
-    ws_drift_tolerance = 0.1
+    ws_drift_tolerance = float(os.environ.get("WS_BALANCE_DRIFT_TOLERANCE", "0.5"))
     heat_gap_tolerance = 100.0
     if enable_heat_balance is None:
         enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
     heat_profile = (heat_profile or "quick").strip().lower()
     if heat_profile not in {"quick", "full"}:
         heat_profile = "quick"
+    intermediate_heat_profile = os.environ.get("WS_BALANCE_INTERMEDIATE_HEAT_PROFILE", "quick").strip().lower()
+    if intermediate_heat_profile not in {"quick", "full"}:
+        intermediate_heat_profile = "quick"
+    intermediate_heat_gap_threshold = float(
+        os.environ.get("WS_BALANCE_INTERMEDIATE_HEAT_GAP_THRESHOLD", "5000")
+    )
 
     old_landuse = None
     required_landuse = None
@@ -970,6 +1025,7 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     gw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
     pw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
     final_drift = float('inf')
+    force_full_heat_validation = False
 
     with transaction.atomic():
         for cycle_index in range(max_convergence_cycles):
@@ -1058,8 +1114,34 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
 
             # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
             if enable_heat_balance:
-                print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-                heat_balance = _balance_heat_sectors_after_ws(mode=heat_profile)
+                cycle_heat_profile = heat_profile
+                if (
+                    heat_profile == "full"
+                    and cycle_no < max_convergence_cycles
+                    and not force_full_heat_validation
+                ):
+                    pre_heat_totals = _get_sector_totals()
+                    pre_gw_gap = abs(float(pre_heat_totals['gebaeudewaerme']['gap']))
+                    pre_pw_gap = abs(float(pre_heat_totals['prozesswaerme']['gap']))
+                    is_close_enough_for_quick = (
+                        pre_gw_gap <= intermediate_heat_gap_threshold and
+                        pre_pw_gap <= intermediate_heat_gap_threshold
+                    )
+                    if is_close_enough_for_quick:
+                        cycle_heat_profile = intermediate_heat_profile
+                    print(
+                        f"   ℹ️ Pre-heat gaps: GW={pre_gw_gap:.2f}, PW={pre_pw_gap:.2f}, "
+                        f"quick_threshold={intermediate_heat_gap_threshold:.2f}"
+                    )
+                if cycle_heat_profile == "quick":
+                    print("   ⚡ Using quick intermediate heat solve")
+                else:
+                    print("   🎯 Using full-precision heat solve")
+                print(
+                    "🔥 Balancing heat sectors (10.4.2↔2.8.0, 10.5↔3.7)"
+                    f" [{cycle_heat_profile}]..."
+                )
+                heat_balance = _balance_heat_sectors_after_ws(mode=cycle_heat_profile)
                 gw_after = heat_balance['after']['gebaeudewaerme']
                 pw_after = heat_balance['after']['prozesswaerme']
                 print(
@@ -1109,9 +1191,28 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
                 f"(target ±{ws_drift_tolerance})"
             )
             if drift_ok and heat_ok:
+                if (
+                    enable_heat_balance
+                    and heat_profile == "full"
+                    and cycle_heat_profile == "quick"
+                    and cycle_no < max_convergence_cycles
+                ):
+                    force_full_heat_validation = True
+                    print("   ⏭️ Quick heat pass converged; running one full-precision validation cycle.")
+                    continue
                 print("   ✅ Converged: WS + heat both balanced")
                 converged = True
                 break
+
+            if (
+                enable_heat_balance
+                and heat_profile == "full"
+                and cycle_heat_profile == "quick"
+                and cycle_no < max_convergence_cycles
+                and not force_full_heat_validation
+            ):
+                force_full_heat_validation = True
+                print("   ⚠️ Quick heat pass did not converge; forcing full-precision heat solve next cycle.")
 
         if not converged:
             raise RuntimeError(
@@ -1167,6 +1268,12 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
     heat_profile = (heat_profile or "quick").strip().lower()
     if heat_profile not in {"quick", "full"}:
         heat_profile = "quick"
+    intermediate_heat_profile = os.environ.get("WS_BALANCE_INTERMEDIATE_HEAT_PROFILE", "quick").strip().lower()
+    if intermediate_heat_profile not in {"quick", "full"}:
+        intermediate_heat_profile = "quick"
+    intermediate_heat_gap_threshold = float(
+        os.environ.get("WS_BALANCE_INTERMEDIATE_HEAT_GAP_THRESHOLD", "5000")
+    )
 
     old_landuse = None
     required_landuse = None
@@ -1184,6 +1291,7 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
     gw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
     pw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
     final_drift = float('inf')
+    force_full_heat_validation = False
 
     # Wind mode must not alter Solar/LU_2.1.
     r912_guard = RenewableData.objects.get(code='9.1.2')
@@ -1301,8 +1409,34 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
 
             # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
             if enable_heat_balance:
-                print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-                heat_balance = _balance_heat_sectors_after_ws(mode=heat_profile)
+                cycle_heat_profile = heat_profile
+                if (
+                    heat_profile == "full"
+                    and cycle_no < max_convergence_cycles
+                    and not force_full_heat_validation
+                ):
+                    pre_heat_totals = _get_sector_totals()
+                    pre_gw_gap = abs(float(pre_heat_totals['gebaeudewaerme']['gap']))
+                    pre_pw_gap = abs(float(pre_heat_totals['prozesswaerme']['gap']))
+                    is_close_enough_for_quick = (
+                        pre_gw_gap <= intermediate_heat_gap_threshold and
+                        pre_pw_gap <= intermediate_heat_gap_threshold
+                    )
+                    if is_close_enough_for_quick:
+                        cycle_heat_profile = intermediate_heat_profile
+                    print(
+                        f"   ℹ️ Pre-heat gaps: GW={pre_gw_gap:.2f}, PW={pre_pw_gap:.2f}, "
+                        f"quick_threshold={intermediate_heat_gap_threshold:.2f}"
+                    )
+                if cycle_heat_profile == "quick":
+                    print("   ⚡ Using quick intermediate heat solve")
+                else:
+                    print("   🎯 Using full-precision heat solve")
+                print(
+                    "🔥 Balancing heat sectors (10.4.2↔2.8.0, 10.5↔3.7)"
+                    f" [{cycle_heat_profile}]..."
+                )
+                heat_balance = _balance_heat_sectors_after_ws(mode=cycle_heat_profile)
                 gw_after = heat_balance['after']['gebaeudewaerme']
                 pw_after = heat_balance['after']['prozesswaerme']
                 print(
@@ -1354,9 +1488,28 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
                 f"(target ±{ws_drift_tolerance})"
             )
             if drift_ok and heat_ok:
+                if (
+                    enable_heat_balance
+                    and heat_profile == "full"
+                    and cycle_heat_profile == "quick"
+                    and cycle_no < max_convergence_cycles
+                ):
+                    force_full_heat_validation = True
+                    print("   ⏭️ Quick heat pass converged; running one full-precision validation cycle.")
+                    continue
                 print("   ✅ Converged: WS + heat both balanced")
                 converged = True
                 break
+
+            if (
+                enable_heat_balance
+                and heat_profile == "full"
+                and cycle_heat_profile == "quick"
+                and cycle_no < max_convergence_cycles
+                and not force_full_heat_validation
+            ):
+                force_full_heat_validation = True
+                print("   ⚠️ Quick heat pass did not converge; forcing full-precision heat solve next cycle.")
 
         if not converged:
             raise RuntimeError(

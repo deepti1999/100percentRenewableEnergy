@@ -3306,13 +3306,13 @@ def _compute_ws_balance_runtime_limit_seconds(summary):
         maximum=24,
     )
     base_runtime = _coerce_float(
-        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "240"),
-        default=240.0,
+        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "120"),
+        default=120.0,
         minimum=60.0,
     )
     per_cycle_runtime = _coerce_float(
-        os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "40"),
-        default=40.0,
+        os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "35"),
+        default=35.0,
         minimum=5.0,
     )
     return max(base_runtime, configured_cycles * per_cycle_runtime)
