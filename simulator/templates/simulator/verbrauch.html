@@ -669,6 +669,24 @@
             }, 4000);
         }
 
+        async function parseJsonOrError(response) {
+            const raw = await response.text();
+            let data = {};
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                const looksLikeHtml = raw && raw.trim().startsWith('<');
+                if (looksLikeHtml) {
+                    throw new Error('Session expired or server returned HTML. Please refresh and login again.');
+                }
+                throw new Error(`Server returned invalid response (HTTP ${response.status}).`);
+            }
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP ${response.status}`);
+            }
+            return data;
+        }
+
         // Save & Recalculate button (uses fresh database values)
         document.getElementById('saveRecalcBtn').addEventListener('click', function () {
             const btn = this;
@@ -683,10 +701,11 @@
                 },
                 body: JSON.stringify({ changes: {} })
             })
-                .then(response => response.json())
+                .then(response => parseJsonOrError(response))
                 .then(data => {
                     if (data.success) {
-                        alert(`✅ Success!\n${data.message}`);
+                        const durationText = data.duration_ms ? `\nDuration: ${data.duration_ms}ms` : '';
+                        alert(`✅ Success!\n${data.message}${durationText}`);
                         location.reload();
                     } else {
                         alert('❌ Error: ' + (data.error || 'Unknown error'));
@@ -714,7 +733,7 @@
                     'Content-Type': 'application/json'
                 }
             })
-                .then(response => response.json())
+                .then(response => parseJsonOrError(response))
                 .then(data => {
                     if (data.status === 'ok') {
                         alert(`Recalculation complete!\nUpdated: ${data.updated} items\nDuration: ${data.duration_ms}ms`);

@@ -449,6 +449,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Apply Balance Button
     async function parseJsonResponse(response, options = {}) {
         const allowRunningConflict = !!options.allowRunningConflict;
+        const conflictMode = (options.conflictMode || '').toLowerCase();
         const raw = await response.text();
         let data = null;
         try {
@@ -464,7 +465,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 response.status === 409 &&
                 data &&
                 data.status === 'running' &&
-                data.run_id
+                data.run_id &&
+                (
+                    !conflictMode ||
+                    !data.mode ||
+                    String(data.mode).toLowerCase() === conflictMode
+                )
             ) {
                 return data;
             }
@@ -512,7 +518,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({ mode: mode })
         }, 20000);
-        return parseJsonResponse(response, { allowRunningConflict: true });
+        return parseJsonResponse(response, { allowRunningConflict: true, conflictMode: mode });
     }
 
     async function waitForBalanceJob(runId, mode, btn) {
