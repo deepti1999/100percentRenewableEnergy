@@ -424,6 +424,87 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Apply Balance Button
+    async function parseJsonResponse(response) {
+        const raw = await response.text();
+        let data = null;
+        try {
+            data = raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            throw new Error(
+                `Server returned non-JSON response (HTTP ${response.status}).`
+            );
+        }
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitForBalanceJob(runId, mode, btn) {
+        const maxPolls = 180; // ~3 minutes at 1s polling
+
+        for (let poll = 1; poll <= maxPolls; poll++) {
+            const statusResponse = await fetch(`/api/ws/balance-job/${runId}/`, {
+                method: 'GET',
+                headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+            });
+            const statusData = await parseJsonResponse(statusResponse);
+
+            if (statusData.status === 'running') {
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>Balancing... (${poll}s)`;
+                await sleep(1000);
+                continue;
+            }
+
+            if (statusData.status === 'success') {
+                return statusData.result || {};
+            }
+
+            throw new Error(statusData.error || `Balance job failed (${mode})`);
+        }
+
+        throw new Error('Balance job timed out while waiting for completion.');
+    }
+
+    function handleBalanceSuccess(data, isWindMode) {
+        const isWind = !!isWindMode;
+        trackAutoLandUseChange({
+            code: data.landuse_code || (isWind ? 'LU_6' : 'LU_2.1'),
+            name: data.landuse_name || (isWind ? 'Windparkfläche' : 'Solar Freiflächen'),
+            old_percent: data.old_landuse_percent,
+            new_percent: data.new_landuse_percent,
+            old_ha: data.old_landuse,
+            new_ha: data.new_landuse,
+            change_ha: data.landuse_change
+        });
+
+        let sectorInfo = '';
+        if (data.heat_balance && data.heat_balance.after) {
+            const gw = data.heat_balance.after.gebaeudewaerme;
+            const pw = data.heat_balance.after.prozesswaerme;
+            sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
+                         '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
+        }
+
+        const title = isWind ? 'Wind-Balance angewendet!' : 'Balance angewendet!';
+        const luLabel = isWind ? 'LU_6' : 'LU_2.1';
+        const energyLabel = isWind ? 'Wind (9.1.1)' : 'Solar (9.1.2)';
+        const energyValue = isWind ? data.new_wind : data.new_solar;
+
+        alert(title + '\n\n' +
+              luLabel + ' aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
+              '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
+              energyLabel + ': ' + Math.round(energyValue).toLocaleString() + ' GWh\n' +
+              'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh' +
+              sectorInfo + '\n\n' +
+              'Seite wird aktualisiert...');
+        window.location.reload();
+    }
+
     document.getElementById('applyBalanceBtn').addEventListener('click', function() {
         const btn = this;
         if (!confirm('Möchten Sie LU_2.1 auf den balancierten Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
@@ -431,58 +512,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
         
-        fetch('{% url "simulator:ws_api_apply_balance" %}', {
+        fetch('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
-            }
+            },
+            body: JSON.stringify({ mode: 'solar' })
         })
-            .then(async (response) => {
-                const raw = await response.text();
-                let data = null;
-                try {
-                    data = raw ? JSON.parse(raw) : {};
-                } catch (e) {
-                    throw new Error(
-                        `Server returned non-JSON response (HTTP ${response.status}). ` +
-                        'Request likely timed out.'
-                    );
-                }
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP ${response.status}`);
-                }
-                return data;
-            })
+            .then((response) => parseJsonResponse(response))
+            .then((startData) => waitForBalanceJob(startData.run_id, 'solar', btn))
             .then(data => {
                 if (data.success) {
-                    trackAutoLandUseChange({
-                        code: data.landuse_code || 'LU_2.1',
-                        name: data.landuse_name || 'Solar Freiflächen',
-                        old_percent: data.old_landuse_percent,
-                        new_percent: data.new_landuse_percent,
-                        old_ha: data.old_landuse,
-                        new_ha: data.new_landuse,
-                        change_ha: data.landuse_change
-                    });
-
-                    let sectorInfo = '';
-                    if (data.heat_balance && data.heat_balance.after) {
-                        const gw = data.heat_balance.after.gebaeudewaerme;
-                        const pw = data.heat_balance.after.prozesswaerme;
-                        sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
-                                     '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
-                    }
-                    alert('Balance angewendet!\n\n' +
-                          'LU_2.1 aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
-                          '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
-                          'Solar (9.1.2): ' + Math.round(data.new_solar).toLocaleString() + ' GWh\n' +
-                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh' +
-                          sectorInfo + '\n\n' +
-                          'Seite wird aktualisiert...');
-                    window.location.reload();
+                    handleBalanceSuccess(data, false);
                 } else {
                     alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
                 }
@@ -504,58 +548,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Wird angewendet...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
 
-        fetch('{% url "simulator:ws_api_apply_balance_wind" %}', {
+        fetch('{% url "simulator:ws_api_start_balance_job" %}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': '{{ csrf_token }}'
-            }
+            },
+            body: JSON.stringify({ mode: 'wind' })
         })
-            .then(async (response) => {
-                const raw = await response.text();
-                let data = null;
-                try {
-                    data = raw ? JSON.parse(raw) : {};
-                } catch (e) {
-                    throw new Error(
-                        `Server returned non-JSON response (HTTP ${response.status}). ` +
-                        'Request likely timed out.'
-                    );
-                }
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP ${response.status}`);
-                }
-                return data;
-            })
+            .then((response) => parseJsonResponse(response))
+            .then((startData) => waitForBalanceJob(startData.run_id, 'wind', btn))
             .then(data => {
                 if (data.success) {
-                    trackAutoLandUseChange({
-                        code: data.landuse_code || 'LU_6',
-                        name: data.landuse_name || 'Windparkfläche',
-                        old_percent: data.old_landuse_percent,
-                        new_percent: data.new_landuse_percent,
-                        old_ha: data.old_landuse,
-                        new_ha: data.new_landuse,
-                        change_ha: data.landuse_change
-                    });
-
-                    let sectorInfo = '';
-                    if (data.heat_balance && data.heat_balance.after) {
-                        const gw = data.heat_balance.after.gebaeudewaerme;
-                        const pw = data.heat_balance.after.prozesswaerme;
-                        sectorInfo = '\nGebäudewärme Gap (2.10-10.4): ' + gw.gap.toFixed(2) + ' GWh' +
-                                     '\nProzesswärme Gap (3.7-10.5): ' + pw.gap.toFixed(2) + ' GWh';
-                    }
-                    alert('Wind-Balance angewendet!\n\n' +
-                          'LU_6 aktualisiert: ' + Math.round(data.new_landuse).toLocaleString() + ' ha\n' +
-                          '(vorher: ' + Math.round(data.old_landuse).toLocaleString() + ' ha)\n\n' +
-                          'Wind (9.1.1): ' + Math.round(data.new_wind).toLocaleString() + ' GWh\n' +
-                          'Speicherdrift: ' + data.storage_drift.toFixed(2) + ' GWh' +
-                          sectorInfo + '\n\n' +
-                          'Seite wird aktualisiert...');
-                    window.location.reload();
+                    handleBalanceSuccess(data, true);
                 } else {
                     alert('Fehler: ' + (data.error || 'Unbekannter Fehler'));
                 }

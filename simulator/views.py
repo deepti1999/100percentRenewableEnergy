@@ -7,10 +7,13 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.db import transaction
+from django.db import transaction, close_old_connections
 import json
 import pandas as pd
 import os
+import time
+import threading
+import traceback
 from .models import (
     LandUse, RenewableData, VerbrauchData, CalculationRun, CategoryDisplayName, Formula
 )
@@ -3219,10 +3222,9 @@ def ws_api_apply_balance(request):
     
     try:
         from .ws_365_service import apply_balanced_landuse
-        result = apply_balanced_landuse()
+        result = apply_balanced_landuse(enable_heat_balance=False, max_convergence_cycles=1)
         return JsonResponse(result)
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
@@ -3235,9 +3237,127 @@ def ws_api_apply_balance_wind(request):
 
     try:
         from .ws_365_service import apply_balanced_wind_landuse
-        result = apply_balanced_wind_landuse()
+        result = apply_balanced_wind_landuse(enable_heat_balance=False, max_convergence_cycles=1)
         return JsonResponse(result)
     except Exception as e:
-        import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+def _run_ws_balance_job(run_id, mode):
+    """
+    Background runner for full WS balancing.
+    Runs full logic (including heat balancing) outside request-response timeout.
+    """
+    close_old_connections()
+    started = time.perf_counter()
+
+    summary = {
+        'type': 'ws_balance',
+        'mode': mode,
+        'status': 'error',
+        'error': 'Unknown error',
+    }
+
+    try:
+        if mode == 'solar':
+            from .ws_365_service import apply_balanced_landuse
+            result = apply_balanced_landuse(enable_heat_balance=True, max_convergence_cycles=3)
+        else:
+            from .ws_365_service import apply_balanced_wind_landuse
+            result = apply_balanced_wind_landuse(enable_heat_balance=True, max_convergence_cycles=3)
+
+        summary = {
+            'type': 'ws_balance',
+            'mode': mode,
+            'status': 'success',
+            'result': result,
+        }
+    except Exception as exc:
+        traceback.print_exc()
+        summary = {
+            'type': 'ws_balance',
+            'mode': mode,
+            'status': 'error',
+            'error': str(exc),
+        }
+    finally:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        try:
+            run = CalculationRun.objects.get(id=run_id)
+            run.duration_ms = duration_ms
+            run.summary = summary
+            run.save(update_fields=['duration_ms', 'summary'])
+        finally:
+            close_old_connections()
+
+
+@login_required
+@require_http_methods(["POST"])
+def ws_api_start_balance_job(request):
+    """
+    Start full WS balance job asynchronously.
+    Supported modes: solar, wind.
+    """
+    try:
+        payload = json.loads(request.body or "{}")
+    except Exception:
+        payload = {}
+
+    mode = (payload.get('mode') or 'solar').lower()
+    if mode not in {'solar', 'wind'}:
+        return JsonResponse({'success': False, 'error': 'Invalid mode'}, status=400)
+
+    run = CalculationRun.objects.create(
+        duration_ms=0,
+        triggered_by=request.user.username,
+        summary={
+            'type': 'ws_balance',
+            'mode': mode,
+            'status': 'running',
+        },
+    )
+
+    thread = threading.Thread(
+        target=_run_ws_balance_job,
+        args=(run.id, mode),
+        daemon=True,
+    )
+    thread.start()
+
+    return JsonResponse({
+        'success': True,
+        'status': 'running',
+        'run_id': run.id,
+        'mode': mode,
+    })
+
+
+@login_required
+@require_http_methods(["GET"])
+def ws_api_balance_job_status(request, run_id):
+    """Get status/result for async WS balance job."""
+    run = get_object_or_404(CalculationRun, id=run_id)
+
+    if run.triggered_by and run.triggered_by != request.user.username and not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Forbidden'}, status=403)
+
+    summary = run.summary or {}
+    if summary.get('type') != 'ws_balance':
+        return JsonResponse({'success': False, 'error': 'Invalid run type'}, status=400)
+
+    status = summary.get('status', 'running')
+    response = {
+        'success': status == 'success',
+        'status': status,
+        'run_id': run.id,
+        'duration_ms': run.duration_ms,
+        'mode': summary.get('mode'),
+    }
+
+    if status == 'success':
+        response['result'] = summary.get('result', {})
+    elif status == 'error':
+        response['error'] = summary.get('error') or 'Balance job failed'
+
+    return JsonResponse(response)

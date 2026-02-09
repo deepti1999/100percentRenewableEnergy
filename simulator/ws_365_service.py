@@ -794,7 +794,7 @@ def _balance_heat_sectors_after_ws():
     }
 
 
-def apply_balanced_landuse():
+def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None):
     """
     Run Goal Seek, calculate required LandUse, and update LU_2.1 in database.
     
@@ -814,11 +814,13 @@ def apply_balanced_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
     
-    # Keep HTTP request under Heroku's 30s router timeout.
-    max_convergence_cycles = 1
+    if max_convergence_cycles is None:
+        # Keep sync HTTP request under Heroku's router timeout by default.
+        max_convergence_cycles = 1
     ws_drift_tolerance = 0.1
     heat_gap_tolerance = 100.0
-    enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
+    if enable_heat_balance is None:
+        enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
 
     old_landuse = None
     required_landuse = None
@@ -999,7 +1001,7 @@ def apply_balanced_landuse():
     }
 
 
-def apply_balanced_wind_landuse():
+def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles=None):
     """
     Run Goal Seek with Wind as variable, calculate required LU_6, and update database.
 
@@ -1009,12 +1011,14 @@ def apply_balanced_wind_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
 
-    # Keep HTTP request under Heroku's 30s router timeout.
-    max_convergence_cycles = 1
+    if max_convergence_cycles is None:
+        # Keep sync HTTP request under Heroku's router timeout by default.
+        max_convergence_cycles = 1
     # Use tighter tolerance so Day1/Day365 also match in UI precision.
     ws_drift_tolerance = 0.005
     heat_gap_tolerance = 100.0
-    enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
+    if enable_heat_balance is None:
+        enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
 
     old_landuse = None
     required_landuse = None
