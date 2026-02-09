@@ -824,6 +824,10 @@ def apply_balanced_landuse():
     final_result = None
     new_912 = None
     completed_cycles = 0
+    landuse_code = 'LU_2.1'
+    landuse_name = 'LU_2.1'
+    old_landuse_percent = None
+    new_landuse_percent = None
 
     with transaction.atomic():
         for cycle_index in range(max_convergence_cycles):
@@ -857,6 +861,12 @@ def apply_balanced_landuse():
 
             # Step 3: Update LU_2.1 in DB
             lu_21 = LandUse.objects.select_related('parent').get(code='LU_2.1')
+            landuse_name = lu_21.name or landuse_name
+            if old_landuse_percent is None:
+                if lu_21.user_percent is not None:
+                    old_landuse_percent = float(lu_21.user_percent)
+                elif lu_21.parent and lu_21.parent.target_ha and lu_21.parent.target_ha > 0 and old_landuse is not None:
+                    old_landuse_percent = (float(old_landuse) / float(lu_21.parent.target_ha)) * 100.0
             required_landuse = _validate_required_landuse(
                 required_landuse,
                 lu_21.parent.target_ha if lu_21.parent else None,
@@ -867,6 +877,10 @@ def apply_balanced_landuse():
                 lu_21.user_percent = (required_landuse / lu_21.parent.target_ha) * 100.0
             lu_21._skip_cascade = True
             lu_21.save(update_fields=['target_ha', 'user_percent'])
+            if lu_21.user_percent is not None:
+                new_landuse_percent = float(lu_21.user_percent)
+            elif lu_21.parent and lu_21.parent.target_ha and lu_21.parent.target_ha > 0:
+                new_landuse_percent = (float(required_landuse) / float(lu_21.parent.target_ha)) * 100.0
             print(f"✅ Updated LU_2.1 target_ha to {required_landuse:.2f} ha")
 
             # Step 4: Recalculate local renewable chain LU_2.1 -> 1.2.1.2 -> 9.1.2
@@ -961,6 +975,10 @@ def apply_balanced_landuse():
         'iterations': goal_seek_result['iterations'] if goal_seek_result else 0,
         'convergence_cycles': completed_cycles,
         'heat_balance': heat_balance,
+        'landuse_code': landuse_code,
+        'landuse_name': landuse_name,
+        'old_landuse_percent': old_landuse_percent,
+        'new_landuse_percent': new_landuse_percent,
     }
 
 
@@ -987,6 +1005,10 @@ def apply_balanced_wind_landuse():
     new_911 = None
     completed_cycles = 0
     optimal_wind = None
+    landuse_code = 'LU_6'
+    landuse_name = 'LU_6'
+    old_landuse_percent = None
+    new_landuse_percent = None
 
     # Wind mode must not alter Solar/LU_2.1.
     r912_guard = RenewableData.objects.get(code='9.1.2')
@@ -1035,6 +1057,12 @@ def apply_balanced_wind_landuse():
 
             # Step 3: Update LU_6 in DB
             lu_6 = LandUse.objects.select_related('parent').get(code='LU_6')
+            landuse_name = lu_6.name or landuse_name
+            if old_landuse_percent is None:
+                if lu_6.user_percent is not None:
+                    old_landuse_percent = float(lu_6.user_percent)
+                elif lu_6.parent and lu_6.parent.target_ha and lu_6.parent.target_ha > 0 and old_landuse is not None:
+                    old_landuse_percent = (float(old_landuse) / float(lu_6.parent.target_ha)) * 100.0
             required_landuse = _validate_required_landuse(
                 required_landuse,
                 lu_6.parent.target_ha if lu_6.parent else None,
@@ -1045,6 +1073,10 @@ def apply_balanced_wind_landuse():
                 lu_6.user_percent = (required_landuse / lu_6.parent.target_ha) * 100.0
             lu_6._skip_cascade = True
             lu_6.save(update_fields=['target_ha', 'user_percent'])
+            if lu_6.user_percent is not None:
+                new_landuse_percent = float(lu_6.user_percent)
+            elif lu_6.parent and lu_6.parent.target_ha and lu_6.parent.target_ha > 0:
+                new_landuse_percent = (float(required_landuse) / float(lu_6.parent.target_ha)) * 100.0
             print(f"✅ Updated LU_6 target_ha to {required_landuse:.2f} ha")
 
             # Step 4: Recalculate local renewable chain LU_6 -> 2.1.1 -> 2.1.1.2.2 -> 9.1.1
@@ -1188,4 +1220,8 @@ def apply_balanced_wind_landuse():
         'iterations': goal_seek_result['iterations'] if goal_seek_result else 0,
         'convergence_cycles': completed_cycles,
         'heat_balance': heat_balance,
+        'landuse_code': landuse_code,
+        'landuse_name': landuse_name,
+        'old_landuse_percent': old_landuse_percent,
+        'new_landuse_percent': new_landuse_percent,
     }

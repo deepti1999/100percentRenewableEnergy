@@ -117,6 +117,47 @@
         padding: 0 !important;
         border: none !important;
     }
+
+    .ws365-balance-card {
+        border: 1px solid #dfe7f3 !important;
+        background: linear-gradient(135deg, #f9fbff 0%, #f5f8ff 100%);
+    }
+
+    .ws365-kpi {
+        background: #ffffff;
+        border: 1px solid #e7ecf5;
+        border-radius: 10px;
+        padding: 0.6rem 0.75rem;
+        height: 100%;
+    }
+
+    .ws365-kpi-label {
+        font-size: 0.72rem;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+    }
+
+    .ws365-kpi-value {
+        font-size: 1.1rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-top: 0.15rem;
+        color: #1f2d3d;
+    }
+
+    .ws365-chart-wrap {
+        position: relative;
+        height: 280px;
+    }
+
+    .ws365-status-pill {
+        font-size: 0.85rem;
+        padding: 0.45rem 0.75rem;
+        border-radius: 999px;
+        font-weight: 700;
+    }
 </style>
 {% endblock %}
 
@@ -211,6 +252,76 @@
                     (Kraft/Licht/IKT/Kälte, Gebäudewärme, Prozesswärme, mobile Anwendungen) jeweils für
                     Status und Ziel (2045).
                 </p>
+            </div>
+
+            <div class="card ws365-balance-card shadow-sm mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">
+                                <i class="fas fa-wave-square me-2 text-primary"></i>WS-365 Balance Status
+                            </h5>
+                            <p class="text-muted mb-0 small">
+                                Prüft, ob der 365-Tage-Speicherzyklus geschlossen ist (Tag 365 = Tag 1).
+                            </p>
+                        </div>
+                        {% if ws_balance_status.available %}
+                            {% if ws_balance_status.is_balanced %}
+                                <span class="badge bg-success ws365-status-pill">Balanciert</span>
+                            {% else %}
+                                <span class="badge bg-danger ws365-status-pill">Nicht balanciert</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="badge bg-secondary ws365-status-pill">Keine Daten</span>
+                        {% endif %}
+                    </div>
+
+                    {% if ws_balance_status.available %}
+                        <div class="row g-2 mb-3">
+                            <div class="col-6 col-lg-3">
+                                <div class="ws365-kpi">
+                                    <div class="ws365-kpi-label">Drift (Tag365-Tag1)</div>
+                                    <div class="ws365-kpi-value {% if ws_balance_status.drift < 0 %}text-danger{% else %}text-success{% endif %}">
+                                        {{ ws_balance_status.drift|floatformat:2 }} GWh
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <div class="ws365-kpi">
+                                    <div class="ws365-kpi-label">Tag 1</div>
+                                    <div class="ws365-kpi-value">{{ ws_balance_status.day1|floatformat:2 }} GWh</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <div class="ws365-kpi">
+                                    <div class="ws365-kpi-label">Tag 365</div>
+                                    <div class="ws365-kpi-value">{{ ws_balance_status.day365|floatformat:2 }} GWh</div>
+                                </div>
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <div class="ws365-kpi">
+                                    <div class="ws365-kpi-label">Defizit-Tage</div>
+                                    <div class="ws365-kpi-value {% if ws_balance_status.deficit_days > 0 %}text-danger{% else %}text-success{% endif %}">
+                                        {{ ws_balance_status.deficit_days }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="ws365-chart-wrap">
+                            <canvas id="ws365BalanceChart"></canvas>
+                        </div>
+                        <p class="text-muted small mb-0 mt-2">
+                            Toleranz: ±{{ ws_balance_status.tolerance|floatformat:2 }} GWh |
+                            Min: {{ ws_balance_status.min_ladezust|floatformat:2 }} GWh |
+                            Max: {{ ws_balance_status.max_ladezust|floatformat:2 }} GWh
+                        </p>
+                    {% else %}
+                        <div class="alert alert-warning mb-0">
+                            WS-365-Daten sind aktuell nicht verfügbar.
+                        </div>
+                    {% endif %}
+                </div>
             </div>
 
             <!-- Tab Navigation -->
@@ -635,4 +746,129 @@
     }
 </style>
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{{ ws_chart_points|json_script:"ws365-chart-points" }}
+{{ ws_balance_status|json_script:"ws365-status-data" }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const chartCanvas = document.getElementById('ws365BalanceChart');
+    const pointsEl = document.getElementById('ws365-chart-points');
+    const statusEl = document.getElementById('ws365-status-data');
+
+    if (!chartCanvas || !pointsEl || !statusEl || typeof Chart === 'undefined') {
+        return;
+    }
+
+    let points = [];
+    let status = {};
+    try {
+        points = JSON.parse(pointsEl.textContent || '[]');
+        status = JSON.parse(statusEl.textContent || '{}');
+    } catch (e) {
+        console.warn('WS365 chart parse failed:', e);
+        return;
+    }
+
+    if (!Array.isArray(points) || points.length === 0) {
+        return;
+    }
+
+    const labels = points.map(p => p.day);
+    const values = points.map(p => Number(p.ladezust_brutto || 0));
+    const isBalanced = Boolean(status.is_balanced);
+    const lineColor = isBalanced ? '#198754' : '#dc3545';
+
+    const ctx = chartCanvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 280);
+    if (isBalanced) {
+        gradient.addColorStop(0, 'rgba(25, 135, 84, 0.25)');
+        gradient.addColorStop(1, 'rgba(25, 135, 84, 0.02)');
+    } else {
+        gradient.addColorStop(0, 'rgba(220, 53, 69, 0.28)');
+        gradient.addColorStop(1, 'rgba(220, 53, 69, 0.03)');
+    }
+
+    const lastIndex = values.length - 1;
+    const pointRadius = values.map((_, idx) => (idx === 0 || idx === lastIndex ? 4 : 0));
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Ladezustand Brutto',
+                    data: values,
+                    borderColor: lineColor,
+                    backgroundColor: gradient,
+                    fill: true,
+                    tension: 0.22,
+                    borderWidth: 2,
+                    pointRadius: pointRadius,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: lineColor,
+                    pointBorderWidth: 0
+                },
+                {
+                    label: 'Null-Linie',
+                    data: new Array(values.length).fill(0),
+                    borderColor: '#6c757d',
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: {
+                        boxWidth: 14
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': ' + Number(context.parsed.y).toFixed(2) + ' GWh';
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Tag im Jahr'
+                    },
+                    ticks: {
+                        maxTicksLimit: 12
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Ladezustand Brutto (GWh)'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return Number(value).toFixed(0);
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
 {% endblock %}

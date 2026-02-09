@@ -400,6 +400,57 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    function roundMaybe(value, digits) {
+        if (value === null || value === undefined || value === '') {
+            return null;
+        }
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            return null;
+        }
+        return Number(num.toFixed(digits));
+    }
+
+    function trackAutoLandUseChange(change) {
+        try {
+            if (!change || change.old_ha === undefined || change.new_ha === undefined) {
+                return;
+            }
+
+            let history = [];
+            const saved = localStorage.getItem('landuse_changes_history') || sessionStorage.getItem('landuse_changes_history_backup');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                    history = parsed;
+                }
+            }
+
+            const normalized = {
+                code: change.code || 'LU',
+                name: change.name || 'Land Use',
+                old_percent: roundMaybe(change.old_percent, 2),
+                new_percent: roundMaybe(change.new_percent, 2),
+                old_ha: roundMaybe(change.old_ha, 2),
+                new_ha: roundMaybe(change.new_ha, 2),
+                change_ha: roundMaybe(change.change_ha, 2) ?? 0,
+                timestamp: new Date().toLocaleTimeString(),
+            };
+
+            history.unshift(normalized);
+            if (history.length > 50) {
+                history = history.slice(0, 50);
+            }
+
+            const dataToSave = JSON.stringify(history);
+            localStorage.setItem('landuse_changes_history', dataToSave);
+            sessionStorage.setItem('landuse_changes_history_backup', dataToSave);
+            console.log('✅ Auto balance change saved for landuse history:', normalized);
+        } catch (e) {
+            console.warn('⚠️ Could not store auto balance change:', e);
+        }
+    }
+
     // Refresh Data Button
     document.getElementById('refreshDataBtn').addEventListener('click', function() {
         window.location.reload();
@@ -454,6 +505,16 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    trackAutoLandUseChange({
+                        code: data.landuse_code || 'LU_2.1',
+                        name: data.landuse_name || 'Solar Freiflächen',
+                        old_percent: data.old_landuse_percent,
+                        new_percent: data.new_landuse_percent,
+                        old_ha: data.old_landuse,
+                        new_ha: data.new_landuse,
+                        change_ha: data.landuse_change
+                    });
+
                     let sectorInfo = '';
                     if (data.heat_balance && data.heat_balance.after) {
                         const gw = data.heat_balance.after.gebaeudewaerme;
@@ -502,6 +563,16 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    trackAutoLandUseChange({
+                        code: data.landuse_code || 'LU_6',
+                        name: data.landuse_name || 'Windparkfläche',
+                        old_percent: data.old_landuse_percent,
+                        new_percent: data.new_landuse_percent,
+                        old_ha: data.old_landuse,
+                        new_ha: data.new_landuse,
+                        change_ha: data.landuse_change
+                    });
+
                     let sectorInfo = '';
                     if (data.heat_balance && data.heat_balance.after) {
                         const gw = data.heat_balance.after.gebaeudewaerme;

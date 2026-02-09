@@ -1475,6 +1475,58 @@ def bilanz_view(request):
     # Get all bilanz data from the calculation engine (fully dynamic)
     bilanz_data = calculate_bilanz_data()
     bilanz_data['latest_run'] = CalculationRun.objects.first()
+
+    # Add WS-365 balance status so Bilanz page can show whether yearly cycle closes.
+    ws_drift_tolerance = 0.1
+    ws_balance_status = {
+        'available': False,
+        'is_balanced': False,
+        'drift': 0.0,
+        'day1': 0.0,
+        'day365': 0.0,
+        'min_ladezust': 0.0,
+        'max_ladezust': 0.0,
+        'deficit_days': 0,
+        'tolerance': ws_drift_tolerance,
+    }
+    ws_chart_points = []
+
+    try:
+        from .ws_365_service import get_ws_365_data
+        ws_data = get_ws_365_data(run_goal_seek=False)
+        ws_current = ws_data.get('current', {}) or {}
+        ws_daily = ws_data.get('daily_data', []) or []
+
+        series = [float((row.get('ladezust_brutto') or 0.0)) for row in ws_daily]
+        drift = float(ws_current.get('storage_drift') or 0.0)
+        day1 = float(ws_current.get('ladezust_day1') or 0.0)
+        day365 = float(ws_current.get('ladezust_day365') or 0.0)
+
+        ws_chart_points = [
+            {
+                'day': int(row.get('day') or idx + 1),
+                'ladezust_brutto': float(row.get('ladezust_brutto') or 0.0),
+            }
+            for idx, row in enumerate(ws_daily)
+        ]
+
+        ws_balance_status = {
+            'available': len(ws_chart_points) > 0,
+            'is_balanced': abs(drift) <= ws_drift_tolerance,
+            'drift': drift,
+            'day1': day1,
+            'day365': day365,
+            'min_ladezust': min(series) if series else 0.0,
+            'max_ladezust': max(series) if series else 0.0,
+            'deficit_days': sum(1 for v in series if v < 0),
+            'tolerance': ws_drift_tolerance,
+        }
+    except Exception:
+        # Keep Bilanz page functional even if WS status cannot be computed.
+        pass
+
+    bilanz_data['ws_balance_status'] = ws_balance_status
+    bilanz_data['ws_chart_points'] = ws_chart_points
     
     # Add current section to context
     bilanz_data['current_section'] = 'bilanz'
