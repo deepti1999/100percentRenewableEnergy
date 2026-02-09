@@ -2713,19 +2713,21 @@ def run_full_recalc_view(request):
 @require_http_methods(["POST"])
 def run_renewables_recalc_view(request):
     """
-    Recalculate renewable formulas only (no Verbrauch/WS recalculation).
-    Used by the Renewable page action button.
+    Run unified stable recalc from the Renewable page action button.
+    This includes WS 365 sync for 9.3.1/9.3.4 so one click reaches final values.
     """
     import time
 
     start = time.perf_counter()
-    renewables_updated = recalc_all_renewables_full(exclude_ws_dependent=False)
+    recalc_stats = unified_recalc_all()
     duration_ms = int((time.perf_counter() - start) * 1000)
 
     summary = {
         "duration_ms": duration_ms,
-        "renewables_updated": renewables_updated,
-        "scope": "renewables_only",
+        "renewables_updated": recalc_stats.get("final_renewables", 0),
+        "input_renewables": recalc_stats.get("input_renewables", 0),
+        "ws365_updated": recalc_stats.get("ws365_updated", False),
+        "scope": "renewables_unified",
     }
     run = CalculationRun.objects.create(
         duration_ms=duration_ms,

@@ -149,12 +149,13 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
     
     dependent_items = list(RenewableData.objects.filter(code__in=base_codes))
     
-    # Sort by CODE LENGTH DESCENDING - longest first (children before parents)
-    # 10.3.1.1 (-4), 10.3.1 (-3), 10.3 (-2), 10.1 (-2 but 10.1 < 10.3)
-    # Then by code descending within same length (10.9 before 10.1)
-    dependent_items.sort(key=lambda x: (-len(x.code.split('.')), x.code), reverse=False)
-    # Correction: Sort children first (more dots = child), then reverse alpha
-    dependent_items.sort(key=lambda x: (-len(x.code), x.code), reverse=False)
+    # Sort children before parents:
+    # - deeper hierarchy first (more segments)
+    # - then longer code first (specificity)
+    # - then lexical for deterministic ordering
+    dependent_items.sort(
+        key=lambda x: (-len(x.code.split('.')), -len(x.code), x.code)
+    )
 
     # Build shared lookups once and keep them updated as we recalc
     landuse_data = {
@@ -179,9 +180,11 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
     calculator = RenewableCalculator()
     updated_count = 0
     
-    # Run 2 PASSES - sorted order (children first) should make 1 pass enough
-    # but 2 passes handles any edge cases without being too slow
-    for pass_num in range(1, 3):
+    # Iterate until convergence so one API call reaches a stable fixed point.
+    # This prevents "different value on second click" behavior on the UI.
+    max_passes = 8
+    for pass_num in range(1, max_passes + 1):
+        pass_updates = 0
         for item in dependent_items:
             # Refresh lookups so newly computed values are seen by downstream formulas
             calculator.set_data_sources(landuse_data, verbrauch_data, renewable_data)
@@ -206,6 +209,10 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
                     "target_value": item.target_value or 0,
                 }
                 updated_count += 1
+                pass_updates += 1
+
+        if pass_updates == 0:
+            break
 
     return updated_count
 
