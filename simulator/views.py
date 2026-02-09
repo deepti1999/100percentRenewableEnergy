@@ -1,6 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib import messages
 from django.conf import settings
@@ -157,7 +156,6 @@ def logout_view(request):
     messages.success(request, 'You have been successfully logged out.')
     return redirect('simulator:landing_page')
 
-@login_required
 def main_simulation(request):
     """Main simulation dashboard with sidebar navigation"""
     context = {
@@ -168,7 +166,6 @@ def main_simulation(request):
     return render(request, 'simulator/main_simulation.html', context)
 
 
-@login_required
 def user_manual(request):
     """User manual page with step-by-step guide and screenshots"""
     context = {
@@ -275,7 +272,6 @@ def calculate_percentages(landuse):
     
     return data
 
-@login_required
 def landuse_list(request):
     """Display all land use data with calculations done in web app"""
     landuses = LandUse.objects.all().order_by('code')
@@ -294,7 +290,6 @@ def landuse_list(request):
     }
     return render(request, 'simulator/landuse_list.html', context)
 
-@login_required
 def landuse_detail(request, pk):
     """Display detailed view of a specific land use item"""
     landuse = LandUse.objects.get(pk=pk)
@@ -319,7 +314,6 @@ def natural_sort_key(code):
     import re
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(code))]
 
-@login_required
 def renewable_list(request):
     """Display all renewable energy data with hierarchical structure - using stored values for speed"""
     
@@ -397,7 +391,6 @@ def renewable_list(request):
     
     return render(request, 'simulator/renewable_list.html', context)
 
-@login_required
 def annual_electricity_view(request):
     """Annual electricity section using DB-driven formulas (category='annual')."""
     ws_consts = get_ws_constants()
@@ -473,7 +466,6 @@ def annual_electricity_view(request):
     
     return render(request, 'simulator/annual_electricity.html', context)
 
-@login_required 
 def cockpit_view(request):
     """
     Cockpit dashboard with dynamic bar charts showing energy balance by sector.
@@ -730,8 +722,6 @@ def cockpit_view_old(request):
     }
     return render(request, 'simulator/cockpit.html', context)
 
-@login_required
-@login_required
 @require_http_methods(["POST"])
 def update_user_percent(request):
     """API endpoint to save user percentage input for land use data"""
@@ -798,7 +788,6 @@ def update_user_percent(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
-@login_required
 @require_http_methods(["POST"])
 def save_all_user_inputs(request):
     """
@@ -1502,7 +1491,6 @@ def smard_solar_wind(request):
     return render(request, 'simulator/smard_solar_wind.html', {'data': data})
 
 
-@login_required
 def bilanz_view(request):
     """
     Bilanz (Balance Sheet) View
@@ -1585,7 +1573,6 @@ def bilanz_view(request):
 # ============================
 
 @csrf_exempt
-@login_required
 def update_landuse_percent(request, pk):
     """
     Update the user_percent of a LandUse item and recalc target_ha automatically.
@@ -2140,7 +2127,6 @@ def _balance_energy_core(driver="solar", energy_tolerance=1.0, max_iter=20, num_
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def balance_full_system(request):
     """
@@ -2387,7 +2373,6 @@ def perform_energy_balance(driver: str = "solar", tolerance: float = 1.0):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def balance_all(request):
     """
@@ -2510,7 +2495,6 @@ def balance_all(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def balance_ws_storage(request):
     """
@@ -2548,7 +2532,6 @@ def balance_ws_storage(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def balance_energy(request):
     """
@@ -2616,7 +2599,6 @@ def balance_energy(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def balance_energy_lu6(request):
     """
@@ -2683,7 +2665,6 @@ def balance_energy_lu6(request):
         return JsonResponse({"status": "error", "message": f"Balance failed: {str(e)}"}, status=500)
 
 
-@login_required
 @require_http_methods(["POST"])
 def run_full_recalc_view(request):
     """
@@ -2709,7 +2690,6 @@ def run_full_recalc_view(request):
     )
 
 
-@login_required
 @require_http_methods(["POST"])
 def run_renewables_recalc_view(request):
     """
@@ -2745,7 +2725,6 @@ def run_renewables_recalc_view(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def recalc_ws_formulas_view(request):
     """
@@ -2778,7 +2757,6 @@ def recalc_ws_formulas_view(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def unified_recalc_view(request):
     """
@@ -3047,7 +3025,6 @@ def update_verbrauch_bulk(request):
 
 
 @csrf_exempt
-@login_required
 @require_http_methods(["POST"])
 def save_verbrauch_user_input(request):
     """
@@ -3113,7 +3090,6 @@ def save_verbrauch_user_input(request):
 # ============================================================================
 # WS 365 Days View
 # ============================================================================
-@login_required
 def ws_view(request):
     """WS 365 Days - Energy Balance Simulation View"""
     from .ws_365_service import (
@@ -3170,7 +3146,6 @@ def ws_view(request):
     return render(request, 'simulator/ws.html', context)
 
 
-@login_required
 def ws_api_data(request):
     """API endpoint to get WS 365 days data as JSON"""
     from .ws_365_service import get_ws_365_data
@@ -3181,7 +3156,6 @@ def ws_api_data(request):
     return JsonResponse(data)
 
 
-@login_required
 def ws_api_goal_seek(request):
     """API endpoint to run Goal Seek and return optimal solar value"""
     from .ws_365_service import get_ws_base_data, get_fixed_values, goal_seek_optimal_solar, calculate_required_landuse
@@ -3209,7 +3183,6 @@ def ws_api_goal_seek(request):
     })
 
 
-@login_required
 def ws_api_apply_balance(request):
     """API endpoint to apply balanced LandUse (update LU_2.1)"""
     if request.method != 'POST':
@@ -3225,7 +3198,6 @@ def ws_api_apply_balance(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-@login_required
 def ws_api_apply_balance_wind(request):
     """API endpoint to apply balanced Wind LandUse (update LU_6)."""
     if request.method != 'POST':
