@@ -15,7 +15,10 @@ def _hierarchy_depth(code: str) -> int:
 ALWAYS_RECALC_CODES = {"1"}  # top-level rollups that should be recalculated even if not flagged
 
 
-def recalc_all_verbrauch(trigger_code: Optional[str] = None) -> List[str]:
+def recalc_all_verbrauch(
+    trigger_code: Optional[str] = None,
+    propagate_renewables: bool = True,
+) -> List[str]:
     """
     Recalculate all calculated VerbrauchData rows in dependency-safe order.
 
@@ -75,19 +78,22 @@ def recalc_all_verbrauch(trigger_code: Optional[str] = None) -> List[str]:
                 item.save(skip_cascade=True, skip_recalc=True)
                 updated_codes.append(item.code)
 
-        # After status/ziel updates, propagate to any RenewableData dependents once
-        for code in updated_codes:
-            try:
-                item = VerbrauchData.objects.get(code=code)
-                item._recalculate_renewable_dependents()
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning(
-                    "Renewable recalc from Verbrauch failed",
-                    extra={
-                        "eventType": "validation",
-                        "context": {"code": code, "trigger_code": trigger_code},
-                    },
-                    exc_info=exc,
-                )
+        # Optional propagation to RenewableData dependents.
+        # In some flows (e.g. WS heat balancing) a full renewable recalc
+        # runs immediately after this, so this propagation is intentionally skipped.
+        if propagate_renewables:
+            for code in updated_codes:
+                try:
+                    item = VerbrauchData.objects.get(code=code)
+                    item._recalculate_renewable_dependents()
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.warning(
+                        "Renewable recalc from Verbrauch failed",
+                        extra={
+                            "eventType": "validation",
+                            "context": {"code": code, "trigger_code": trigger_code},
+                        },
+                        exc_info=exc,
+                    )
 
     return updated_codes

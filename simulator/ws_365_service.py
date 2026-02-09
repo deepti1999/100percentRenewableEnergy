@@ -629,7 +629,10 @@ def _balance_heat_sectors_after_ws():
         for idx in range(max_rounds):
             if _deadline_exceeded():
                 break
-            recalc_all_verbrauch(trigger_code=f"{trigger_prefix}_{idx + 1}")
+            recalc_all_verbrauch(
+                trigger_code=f"{trigger_prefix}_{idx + 1}",
+                propagate_renewables=False,
+            )
             recalc_all_renewables_full(
                 exclude_ws_dependent=False,
                 max_passes=2,
