@@ -10,6 +10,6 @@ services:
       - key: DJANGO_DEBUG
         value: "false"
       - key: DJANGO_ALLOWED_HOSTS
-        value: "localhost,127.0.0.1"
+        value: "*"
       - key: DJANGO_SECRET_KEY
         generateValue: true
