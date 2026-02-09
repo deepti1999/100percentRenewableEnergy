@@ -11,5 +11,7 @@ services:
         value: "false"
       - key: DJANGO_ALLOWED_HOSTS
         value: "*"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
       - key: DJANGO_SECRET_KEY
         generateValue: true
