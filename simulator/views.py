@@ -104,8 +104,8 @@ def _check_landuse_increase_limit(landuse, requested_percent):
 # =============================================================================
 
 def landing_page(request):
-    """Landing page for 100ProSim application"""
-    return render(request, 'simulator/landing_page.html')
+    """Public root URL: open simulator directly (no user login gate)."""
+    return redirect('simulator:main_simulation')
 
 def user_guide(request):
     """Static quick-start guide with visual pointers to key pages"""
