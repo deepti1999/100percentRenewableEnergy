@@ -617,17 +617,21 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         profile = "quick"
 
     if profile == "full":
-        # fix94-style profile: more settling/probing for accuracy.
-        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_FULL_MAX_SECONDS", "45"))
+        # Full profile still needs bounded runtime for async job guarantees.
+        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_FULL_MAX_SECONDS", "60"))
         settle_rounds_default = 3
-        probe_steps = 6
-        use_fast_recalc = False
+        eval_settle_rounds = 2
+        coordinate_passes = 3
+        solver_iterations = 8
+        renewable_max_passes = 3
     else:
         # Timeout-safe profile for sync request paths.
         max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "20"))
         settle_rounds_default = 2
-        probe_steps = 4
-        use_fast_recalc = True
+        eval_settle_rounds = 1
+        coordinate_passes = 1
+        solver_iterations = 4
+        renewable_max_passes = 2
 
     deadline = time.monotonic() + max(5.0, max_seconds)
 
@@ -645,19 +649,17 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         for idx in range(rounds):
             if _deadline_exceeded():
                 break
-            if use_fast_recalc:
-                recalc_all_verbrauch(
-                    trigger_code=f"{trigger_prefix}_{idx + 1}",
-                    propagate_renewables=False,
-                )
-                recalc_all_renewables_full(
-                    exclude_ws_dependent=False,
-                    max_passes=2,
-                    change_tolerance=1e-6,
-                )
-            else:
-                recalc_all_verbrauch(trigger_code=f"{trigger_prefix}_{idx + 1}")
-                recalc_all_renewables_full(exclude_ws_dependent=False)
+            # Use the fast dependency path even in full mode; we run more rounds
+            # and deterministic scalar solving below to regain accuracy.
+            recalc_all_verbrauch(
+                trigger_code=f"{trigger_prefix}_{idx + 1}",
+                propagate_renewables=False,
+            )
+            recalc_all_renewables_full(
+                exclude_ws_dependent=False,
+                max_passes=renewable_max_passes,
+                change_tolerance=1e-6,
+            )
             current = _get_sector_totals()
             if prev is not None:
                 gw_delta = abs(current['gebaeudewaerme']['gap'] - prev['gebaeudewaerme']['gap'])
@@ -667,16 +669,108 @@ def _balance_heat_sectors_after_ws(mode="quick"):
             prev = current
         return current or _get_sector_totals()
 
+    def _bounded_scalar_solve(
+        current_value: float,
+        lower: float,
+        upper: float,
+        tolerance: float,
+        evaluator,
+        seed_values=None,
+    ):
+        """
+        Deterministic bounded scalar solver:
+        - always stays inside [lower, upper]
+        - uses sign bracketing when available
+        - falls back to secant/newton-like refinement
+        """
+        seeds = list(seed_values or [])
+        cache = {}
+
+        def _clamp(value: float) -> float:
+            return max(lower, min(upper, float(value)))
+
+        def _evaluate(value: float):
+            x = _clamp(value)
+            key = round(x, 8)
+            if key in cache:
+                return cache[key]
+            solved_x, solved_gap, solved_totals = evaluator(x, settle_rounds=eval_settle_rounds)
+            result = (float(solved_x), float(solved_gap), solved_totals)
+            cache[key] = result
+            return result
+
+        _evaluate(current_value)
+        _evaluate(lower)
+        _evaluate(upper)
+        for seed in seeds:
+            if _deadline_exceeded():
+                break
+            _evaluate(seed)
+
+        def _best_point():
+            return min(cache.values(), key=lambda item: abs(item[1]))
+
+        for iteration in range(solver_iterations):
+            if _deadline_exceeded():
+                break
+            best_x, best_gap, _ = _best_point()
+            if abs(best_gap) <= tolerance:
+                break
+
+            points = sorted(cache.values(), key=lambda item: item[0])
+            bracket = None
+            for left, right in zip(points, points[1:]):
+                g_left = left[1]
+                g_right = right[1]
+                if g_left == 0.0 or g_right == 0.0 or (g_left * g_right) < 0.0:
+                    if bracket is None:
+                        bracket = (left, right)
+                        continue
+                    old_span = abs(bracket[1][0] - bracket[0][0])
+                    new_span = abs(right[0] - left[0])
+                    if new_span < old_span:
+                        bracket = (left, right)
+
+            if bracket is not None:
+                candidate = (bracket[0][0] + bracket[1][0]) / 2.0
+            else:
+                ranked = sorted(cache.values(), key=lambda item: abs(item[1]))
+                candidate = best_x
+                if len(ranked) >= 2:
+                    x1, g1, _ = ranked[0]
+                    x2, g2, _ = ranked[1]
+                    if abs(g2 - g1) > 1e-9 and abs(x2 - x1) > 1e-9:
+                        candidate = x2 - (g2 * (x2 - x1) / (g2 - g1))
+                if abs(candidate - best_x) < 1e-9:
+                    span = (upper - lower) * (0.5 ** (iteration + 2))
+                    candidate = best_x + (span if best_gap < 0 else -span)
+
+            candidate = _clamp(candidate)
+            key = round(candidate, 8)
+            if key in cache:
+                base_step = max((upper - lower) / 200.0, 0.05)
+                found_alt = False
+                for mul in (1.0, -1.0, 2.0, -2.0, 4.0, -4.0):
+                    alt = _clamp(candidate + (base_step * mul))
+                    if round(alt, 8) not in cache:
+                        candidate = alt
+                        found_alt = True
+                        break
+                if not found_alt:
+                    break
+
+            _evaluate(candidate)
+
+        best_x, _, _ = _best_point()
+        # Finalize on best candidate with full settle rounds for accurate residual.
+        return evaluator(best_x, settle_rounds=settle_rounds_default)
+
     # Ensure consumption + renewable totals are stable before calculating gaps.
     before = settle_totals("ws_heat_balance_start")
 
     # --- Gebäudewärme knob: Verbrauch 2.8 ziel (%) ---
     v28 = VerbrauchData.objects.get(code='2.8')
     old_28 = float(v28.ziel or 0)
-    old_gap = float(before['gebaeudewaerme']['gap'])
-    best_28 = old_28
-    best_gap = abs(old_gap)
-    tried_points = [(old_28, old_gap)]
 
     def _clamp_28(value_28: float) -> float:
         return max(0.0, min(100.0, float(value_28)))
@@ -703,90 +797,14 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         gap_now = float(settled['gebaeudewaerme']['gap'])
         return value_28, gap_now, settled
 
-    def _remember_candidate(x_val: float, gap_val: float):
-        nonlocal best_28, best_gap
-        tried_points.append((x_val, gap_val))
-        if abs(gap_val) < best_gap:
-            best_gap = abs(gap_val)
-            best_28 = x_val
-
-    def _evaluate_28_gap(value_28: float, settle_rounds: int = None):
-        """
-        Evaluate a real committed state for 2.8 and return the resulting gap.
-        """
-        x_eval, g_eval, _ = apply_28_and_get_gap(value_28, settle_rounds=settle_rounds)
-        _remember_candidate(x_eval, g_eval)
-        return x_eval, g_eval
-
     gw_gap_tolerance = 100.0
-
-    if abs(old_gap) > gw_gap_tolerance and not _deadline_exceeded():
-        x_curr = old_28
-        g_curr = old_gap
-        probe_step = 0.5
-
-        for _ in range(probe_steps):
-            if _deadline_exceeded():
-                break
-            if abs(g_curr) <= gw_gap_tolerance:
-                break
-
-            direction = -1.0 if g_curr > 0 else 1.0
-            x_probe = _clamp_28(x_curr + (direction * probe_step))
-            if abs(x_probe - x_curr) < 1e-9:
-                break
-
-            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=settle_rounds_default)
-
-            slope = None
-            if abs(x_probe - x_curr) > 1e-9:
-                slope = (g_probe - g_curr) / (x_probe - x_curr)
-
-            x_next = None
-            g_next = None
-            if slope is not None and abs(slope) > 1e-9:
-                x_guess = _clamp_28(x_curr - (g_curr / slope))
-                max_jump = max(1.0, probe_step * 4.0)
-                x_guess = max(x_curr - max_jump, min(x_curr + max_jump, x_guess))
-                if abs(x_guess - x_probe) > 1e-9 and abs(x_guess - x_curr) > 1e-9:
-                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=settle_rounds_default)
-
-            candidates = [(x_curr, g_curr), (x_probe, g_probe)]
-            if x_next is not None:
-                candidates.append((x_next, g_next))
-
-            target_x, _ = min(candidates, key=lambda item: abs(item[1]))
-            current_state_x = candidates[-1][0]
-
-            if abs(target_x - current_state_x) > 1e-9:
-                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=settle_rounds_default)
-                _remember_candidate(target_x, target_gap)
-            else:
-                target_gap = candidates[-1][1]
-
-            improved = abs(target_gap) < abs(g_curr)
-            x_curr, g_curr = target_x, target_gap
-
-            if improved:
-                probe_step = min(2.0, probe_step * 1.3)
-            else:
-                probe_step = max(0.1, probe_step * 0.5)
-                if probe_step <= 0.11:
-                    break
-
-    # Set final best 2.8 and keep that state with full settling.
-    v28.refresh_from_db(fields=['ziel', 'user_percent'])
-    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(
-        best_28,
-        settle_rounds=settle_rounds_default
-    )
+    pw_gap_tolerance = 100.0
 
     # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
     r54 = RenewableData.objects.get(code='5.4')
     r541 = RenewableData.objects.get(code='5.4.1')
     base_54 = float(r54.target_value or 0)
     old_541 = float(r541.target_value or 0)
-    pw_gap = totals_after_28['prozesswaerme']['gap']
 
     process_adjustment = {
         'base_5_4': base_54,
@@ -796,24 +814,92 @@ def _balance_heat_sectors_after_ws(mode="quick"):
         'applied': False,
         'reason': '',
     }
+    gw_solver_meta = {'iterations': 0, 'applied': False}
+    pw_solver_meta = {'iterations': 0, 'applied': False}
+    final_28 = old_28
+    final_541 = old_541
+    after = before
 
-    if base_54 > 0:
-        delta_pct = (pw_gap * 100.0) / base_54
-        new_541 = max(0.0, min(100.0, old_541 + delta_pct))
-        if abs(new_541 - old_541) > 1e-9:
-            r541.target_value = new_541
-            r541.save(skip_cascade=True, update_fields=['target_value'])
-        process_adjustment.update({
-            'new_5_4_1_percent': new_541,
-            'delta_percent': new_541 - old_541,
-            'applied': abs(new_541 - old_541) > 1e-9,
-            'reason': '' if abs(new_541 - old_541) > 1e-9 else 'No change needed',
-        })
-    else:
-        process_adjustment['reason'] = 'Cannot adjust 5.4.1 because 5.4 target is 0'
+    def apply_541_and_get_gap(value_541: float, settle_rounds: int = None):
+        value_541 = max(0.0, min(100.0, float(value_541)))
+        r541.target_value = value_541
+        r541.save(skip_cascade=True, update_fields=['target_value'])
+        rounds = settle_rounds if settle_rounds is not None else settle_rounds_default
+        settled = settle_totals("ws_heat_balance_5_4_1", max_rounds=max(1, rounds))
+        gap_now = float(settled['prozesswaerme']['gap'])
+        return value_541, gap_now, settled
 
-    # Recalculate until stable after both knob updates.
+    # Alternate both controls in coordinate steps to absorb coupling effects.
+    for coord_idx in range(coordinate_passes):
+        if _deadline_exceeded():
+            break
+
+        gw_gap_now = float(after['gebaeudewaerme']['gap'])
+        pw_gap_now = float(after['prozesswaerme']['gap'])
+        if abs(gw_gap_now) <= gw_gap_tolerance and abs(pw_gap_now) <= pw_gap_tolerance:
+            break
+
+        if abs(gw_gap_now) > gw_gap_tolerance:
+            gw_demand = float(after['gebaeudewaerme']['demand'] or 0.0)
+            gw_supply = float(after['gebaeudewaerme']['supply'] or 0.0)
+            gw_seeds = []
+            if gw_demand > 0 and final_28 > 0:
+                gw_seeds.append(final_28 * (gw_supply / gw_demand))
+            solved_28, solved_gw_gap, solved_totals = _bounded_scalar_solve(
+                current_value=final_28,
+                lower=0.0,
+                upper=100.0,
+                tolerance=gw_gap_tolerance,
+                evaluator=apply_28_and_get_gap,
+                seed_values=gw_seeds,
+            )
+            final_28 = solved_28
+            after = solved_totals
+            gw_solver_meta['iterations'] = coord_idx + 1
+            gw_solver_meta['applied'] = abs(final_28 - old_28) > 1e-9
+            if abs(solved_gw_gap) <= gw_gap_tolerance and abs(after['prozesswaerme']['gap']) <= pw_gap_tolerance:
+                break
+
+        if _deadline_exceeded():
+            break
+
+        if base_54 > 0:
+            pw_gap_now = float(after['prozesswaerme']['gap'])
+            if abs(pw_gap_now) > pw_gap_tolerance:
+                linear_guess = final_541 + ((pw_gap_now * 100.0) / base_54)
+                solved_541, solved_pw_gap, solved_totals = _bounded_scalar_solve(
+                    current_value=final_541,
+                    lower=0.0,
+                    upper=100.0,
+                    tolerance=pw_gap_tolerance,
+                    evaluator=apply_541_and_get_gap,
+                    seed_values=[linear_guess],
+                )
+                final_541 = solved_541
+                after = solved_totals
+                pw_solver_meta['iterations'] = coord_idx + 1
+                pw_solver_meta['applied'] = abs(final_541 - old_541) > 1e-9
+                if abs(solved_pw_gap) <= pw_gap_tolerance and abs(after['gebaeudewaerme']['gap']) <= gw_gap_tolerance:
+                    break
+        else:
+            process_adjustment['reason'] = 'Cannot adjust 5.4.1 because 5.4 target is 0'
+            break
+
+    # Final settle after the chosen control values.
     after = settle_totals("ws_heat_balance_final", max_rounds=settle_rounds_default)
+    final_gw_gap = float(after['gebaeudewaerme']['gap'])
+    final_pw_gap = float(after['prozesswaerme']['gap'])
+
+    process_adjustment.update({
+        'new_5_4_1_percent': final_541,
+        'delta_percent': final_541 - old_541,
+        'applied': abs(final_541 - old_541) > 1e-9,
+        'reason': process_adjustment.get('reason') or (
+            'No change needed' if abs(final_541 - old_541) <= 1e-9 else ''
+        ),
+        'final_gap': final_pw_gap,
+        'solver_iterations': pw_solver_meta['iterations'],
+    })
 
     return {
         'before': before,
@@ -823,8 +909,9 @@ def _balance_heat_sectors_after_ws(mode="quick"):
                 'old_ziel_percent': old_28,
                 'new_ziel_percent': final_28,
                 'delta_percent': final_28 - old_28,
-                'final_gap': after['gebaeudewaerme']['gap'],
+                'final_gap': final_gw_gap,
                 'applied': abs(final_28 - old_28) > 1e-9,
+                'solver_iterations': gw_solver_meta['iterations'],
             },
             'renewable_8_2_fixed': {
                 'old_target': old_82_target,
