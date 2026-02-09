@@ -14,6 +14,7 @@ import os
 import time
 import threading
 import traceback
+from django.utils import timezone
 from .models import (
     LandUse, RenewableData, VerbrauchData, CalculationRun, CategoryDisplayName, Formula
 )
@@ -3347,6 +3348,21 @@ def ws_api_balance_job_status(request, run_id):
         return JsonResponse({'success': False, 'error': 'Invalid run type'}, status=400)
 
     status = summary.get('status', 'running')
+    if status == 'running':
+        max_runtime = float(os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "180"))
+        age_seconds = (timezone.now() - run.created_at).total_seconds()
+        if age_seconds > max_runtime:
+            summary = {
+                'type': 'ws_balance',
+                'mode': summary.get('mode'),
+                'status': 'error',
+                'error': f'Balance exceeded runtime limit ({int(max_runtime)}s).',
+            }
+            run.duration_ms = int(age_seconds * 1000)
+            run.summary = summary
+            run.save(update_fields=['duration_ms', 'summary'])
+            status = 'error'
+
     response = {
         'success': status == 'success',
         'status': status,

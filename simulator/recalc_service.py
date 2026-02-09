@@ -113,7 +113,11 @@ def full_chain_recalc_for_landuse(landuse_code: str, verbose: bool = False) -> D
     return stats
 
 
-def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
+def recalc_all_renewables_full(
+    exclude_ws_dependent: bool = False,
+    max_passes: int = 8,
+    change_tolerance: float = 1e-6,
+) -> int:
     """
     Recalculate all non-fixed RenewableData items in MULTIPLE PASSES to ensure
     children are calculated before parents (since parents sum their children).
@@ -182,7 +186,9 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
     
     # Iterate until convergence so one API call reaches a stable fixed point.
     # This prevents "different value on second click" behavior on the UI.
-    max_passes = 8
+    max_passes = max(1, int(max_passes or 1))
+    tol = max(0.0, float(change_tolerance or 0.0))
+
     for pass_num in range(1, max_passes + 1):
         pass_updates = 0
         for item in dependent_items:
@@ -193,11 +199,14 @@ def recalc_all_renewables_full(exclude_ws_dependent: bool = False) -> int:
             calc_status, calc_target = calculator.calculate(item.code, fail_fast=False)
 
             values_changed = False
-            if calc_status is not None and item.status_value != calc_status:
+            old_status = float(item.status_value or 0.0)
+            old_target = float(item.target_value or 0.0)
+
+            if calc_status is not None and abs(old_status - float(calc_status)) > tol:
                 item.status_value = calc_status
                 values_changed = True
 
-            if calc_target is not None and item.target_value != calc_target:
+            if calc_target is not None and abs(old_target - float(calc_target)) > tol:
                 item.target_value = calc_target
                 values_changed = True
 

@@ -7,6 +7,7 @@ Provides real-time recalculation when inputs change.
 
 import math
 import os
+import time
 
 from .models import VerbrauchData, RenewableData
 from .ws_models import WSData
@@ -611,7 +612,14 @@ def _balance_heat_sectors_after_ws():
         r82_fixed.save(skip_cascade=True, update_fields=['target_value', 'is_fixed'])
     new_82_target = float(r82_fixed.target_value or 0)
 
-    def settle_totals(trigger_prefix: str, max_rounds: int = 3, tolerance: float = 1.0):
+    # Hard time budget so balancing always completes on Heroku dyno size.
+    max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "45"))
+    deadline = time.monotonic() + max(5.0, max_seconds)
+
+    def _deadline_exceeded() -> bool:
+        return time.monotonic() >= deadline
+
+    def settle_totals(trigger_prefix: str, max_rounds: int = 2, tolerance: float = 1.0):
         """
         Recalculate until heat-sector gaps stabilize.
         This avoids optimizing 2.8 against transient intermediate states.
@@ -619,8 +627,14 @@ def _balance_heat_sectors_after_ws():
         prev = None
         current = None
         for idx in range(max_rounds):
+            if _deadline_exceeded():
+                break
             recalc_all_verbrauch(trigger_code=f"{trigger_prefix}_{idx + 1}")
-            recalc_all_renewables_full(exclude_ws_dependent=False)
+            recalc_all_renewables_full(
+                exclude_ws_dependent=False,
+                max_passes=2,
+                change_tolerance=1e-6,
+            )
             current = _get_sector_totals()
             if prev is not None:
                 gw_delta = abs(current['gebaeudewaerme']['gap'] - prev['gebaeudewaerme']['gap'])
@@ -644,7 +658,7 @@ def _balance_heat_sectors_after_ws():
     def _clamp_28(value_28: float) -> float:
         return max(0.0, min(100.0, float(value_28)))
 
-    def apply_28_and_get_gap(value_28: float, settle_rounds: int = 3):
+    def apply_28_and_get_gap(value_28: float, settle_rounds: int = 2):
         value_28 = _clamp_28(value_28)
         v28.ziel = value_28
         if v28.user_editable:
@@ -672,7 +686,7 @@ def _balance_heat_sectors_after_ws():
             best_gap = abs(gap_val)
             best_28 = x_val
 
-    def _evaluate_28_gap(value_28: float, settle_rounds: int = 3):
+    def _evaluate_28_gap(value_28: float, settle_rounds: int = 2):
         """
         Evaluate a real committed state for 2.8 and return the resulting gap.
         """
@@ -682,12 +696,14 @@ def _balance_heat_sectors_after_ws():
 
     gw_gap_tolerance = 100.0
 
-    if abs(old_gap) > gw_gap_tolerance:
+    if abs(old_gap) > gw_gap_tolerance and not _deadline_exceeded():
         x_curr = old_28
         g_curr = old_gap
         probe_step = 0.5
 
-        for _ in range(6):
+        for _ in range(4):
+            if _deadline_exceeded():
+                break
             if abs(g_curr) <= gw_gap_tolerance:
                 break
 
@@ -696,7 +712,7 @@ def _balance_heat_sectors_after_ws():
             if abs(x_probe - x_curr) < 1e-9:
                 break
 
-            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=3)
+            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=2)
 
             slope = None
             if abs(x_probe - x_curr) > 1e-9:
@@ -709,7 +725,7 @@ def _balance_heat_sectors_after_ws():
                 max_jump = max(1.0, probe_step * 4.0)
                 x_guess = max(x_curr - max_jump, min(x_curr + max_jump, x_guess))
                 if abs(x_guess - x_probe) > 1e-9 and abs(x_guess - x_curr) > 1e-9:
-                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=3)
+                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=2)
 
             candidates = [(x_curr, g_curr), (x_probe, g_probe)]
             if x_next is not None:
@@ -719,7 +735,7 @@ def _balance_heat_sectors_after_ws():
             current_state_x = candidates[-1][0]
 
             if abs(target_x - current_state_x) > 1e-9:
-                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=3)
+                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=2)
                 _remember_candidate(target_x, target_gap)
             else:
                 target_gap = candidates[-1][1]
@@ -736,7 +752,7 @@ def _balance_heat_sectors_after_ws():
 
     # Set final best 2.8 and keep that state with full settling.
     v28.refresh_from_db(fields=['ziel', 'user_percent'])
-    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=3)
+    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=2)
 
     # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
     r54 = RenewableData.objects.get(code='5.4')
