@@ -3000,7 +3000,14 @@ def save_verbrauch_user_input(request):
 @login_required
 def ws_view(request):
     """WS 365 Days - Energy Balance Simulation View"""
-    from .ws_365_service import get_ws_365_data, calculate_required_landuse
+    from .ws_365_service import (
+        get_ws_365_data,
+        calculate_required_landuse,
+        get_ws_base_data,
+        get_fixed_values,
+        goal_seek_optimal_wind,
+        calculate_required_landuse_wind,
+    )
     
     # Get data with goal seek
     data = get_ws_365_data(run_goal_seek=True)
@@ -3012,10 +3019,33 @@ def ws_view(request):
         goal_seek['required_landuse'] = landuse_result['required_landuse']
         goal_seek['current_landuse'] = landuse_result['current_landuse']
         goal_seek['landuse_change'] = landuse_result['landuse_change']
+
+    # Build wind goal-seek box data (same structure as solar box)
+    goal_seek_wind = {}
+    try:
+        ws_data = get_ws_base_data()
+        fixed_values = get_fixed_values()
+        wind_result = goal_seek_optimal_wind(ws_data, fixed_values)
+        wind_landuse = calculate_required_landuse_wind(wind_result['optimal_wind'])
+        goal_seek_wind = {
+            'optimal_wind': wind_result['optimal_wind'],
+            'wind_change': wind_result['wind_change'],
+            'wind_change_pct': wind_result['wind_change_pct'],
+            'iterations': wind_result['iterations'],
+            'storage_drift': wind_result['result']['storage_drift'],
+            'annual_electricity': wind_result['result']['annual_electricity'],
+            'required_landuse': wind_landuse['required_landuse'],
+            'current_landuse': wind_landuse['current_landuse'],
+            'landuse_change': wind_landuse['landuse_change'],
+        }
+    except Exception:
+        # Keep page usable even if wind box computation fails.
+        goal_seek_wind = {}
     
     context = {
         'current': data['current'],
         'goal_seek': goal_seek,
+        'goal_seek_wind': goal_seek_wind,
         'daily_data': data['daily_data'],
         'optimal_daily_data': data.get('optimal_daily_data', []),
         'current_section': 'ws',

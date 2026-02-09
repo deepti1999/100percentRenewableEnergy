@@ -120,188 +120,6 @@
 </style>
 {% endblock %}
 
-{% block extra_js %}
-<script>
-    function getCsrfToken() {
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        if (match) return match[1];
-        const inputToken = document.querySelector('input[name=csrfmiddlewaretoken]');
-        return inputToken ? inputToken.value : '';
-    }
-
-    async function runBalance() {
-        const btn = document.getElementById('balance-btn');
-        const driver = document.getElementById('balance-driver').value;
-        const original = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Balancing...';
-
-        try {
-            const response = await fetch("{% url 'simulator:balance_energy' %}", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": getCsrfToken()
-                },
-                body: JSON.stringify({
-                    driver: driver,
-                    tolerance: 1.0
-                })
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            
-            // Save land use change to localStorage for Recent Changes panel
-            if (data.summary && data.summary.landuse_change) {
-                saveLandUseChangeToStorage(data.summary.landuse_change);
-            }
-            
-            alert('Energy Balance Complete!\n\n' +
-                'Demand: ' + data.summary.demand.toFixed(0) + ' GWh\n' +
-                'Renewable: ' + data.summary.renewable.toFixed(0) + ' GWh\n' +
-                'Final Gap: ' + data.summary.final_gap.toFixed(2) + ' GWh\n' +
-                'Final Ha: ' + data.summary.final_ha.toFixed(2));
-            window.location.reload();
-        } catch (err) {
-            console.error('Balance failed', err);
-            alert('Balance failed. Please try again.');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = original;
-        }
-    }
-
-    async function runBalanceLU6() {
-        const btn = document.getElementById('balance-lu6-btn');
-        const original = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Balancing LU_6...';
-
-        try {
-            const response = await fetch("{% url 'simulator:balance_energy_lu6' %}", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": getCsrfToken()
-                },
-                body: JSON.stringify({
-                    tolerance: 1.0
-                })
-            });
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            const data = await response.json();
-            
-            // Save land use change to localStorage for Recent Changes panel
-            if (data.summary && data.summary.landuse_change) {
-                saveLandUseChangeToStorage(data.summary.landuse_change);
-            }
-            
-            alert('Energy Balance (LU_6) Complete!\n\n' +
-                'Driver: LU_6 (Windparkfläche)\n' +
-                'Demand: ' + data.summary.demand.toFixed(0) + ' GWh\n' +
-                'Renewable: ' + data.summary.renewable.toFixed(0) + ' GWh\n' +
-                'Final Gap: ' + data.summary.final_gap.toFixed(2) + ' GWh\n' +
-                'Final Ha: ' + data.summary.final_ha.toFixed(2));
-            window.location.reload();
-        } catch (err) {
-            console.error('Balance failed', err);
-            alert('Balance failed. Please try again.');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = original;
-        }
-    }
-
-    async function runFullBalance() {
-        const btn = document.getElementById('full-balance-btn');
-        const driver = document.getElementById('balance-driver').value;
-        const original = btn.innerHTML;
-
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Balancing all...';
-
-        try {
-            const response = await fetch("/api/balance-all/", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": getCsrfToken()
-                },
-                body: JSON.stringify({
-                    driver: driver,
-                    tolerance: 1.0,
-                    ws_tolerance: 10.0,   // FIXED: was 1e-3 which is too tight
-                    max_cycles: 12
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                const message = data && data.message ? data.message : `HTTP ${response.status}`;
-                throw new Error(message);
-            }
-
-            console.log('Full balance cycles', data.cycles);
-
-            const status = data.overall_status || data.status;
-            if (status === "balanced" || status === "ok") {
-                alert(`✅ Balance Complete!\n\nFinal Gap: ${data.gap_after_ws?.toFixed(2) || 0} GWh\nIterations: ${data.iterations || 0}`);
-            } else {
-                alert((data.message || "Partial balance") + " (status: " + status + ")");
-            }
-
-            window.location.reload();
-        } catch (err) {
-            console.error('Full balance failed', err);
-            alert('Full balance failed: ' + (err.message || 'Please try again.'));
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = original;
-        }
-    }
-    
-    // Helper function to save land use changes to localStorage
-    function saveLandUseChangeToStorage(change) {
-        try {
-            console.log('💾 Saving automatic land use change to localStorage:', change);
-            
-            // Load existing changes
-            let changesHistory = [];
-            const saved = localStorage.getItem('landuse_changes_history');
-            if (saved) {
-                changesHistory = JSON.parse(saved);
-            }
-            
-            // Add timestamp
-            change.timestamp = new Date().toLocaleTimeString();
-            
-            // Add to beginning of array
-            changesHistory.unshift(change);
-            
-            // Keep only last 50 changes
-            if (changesHistory.length > 50) {
-                changesHistory = changesHistory.slice(0, 50);
-            }
-            
-            // Save back to localStorage
-            localStorage.setItem('landuse_changes_history', JSON.stringify(changesHistory));
-            
-            // Also save to sessionStorage as backup
-            sessionStorage.setItem('landuse_changes_history_backup', JSON.stringify(changesHistory));
-            
-            console.log('✅ Automatic change saved to storage');
-        } catch (e) {
-            console.error('❌ Error saving automatic change:', e);
-        }
-    }
-</script>
-{% endblock %}
-
 {% block content %}
 {% csrf_token %}
 <div class="container-fluid">
@@ -380,36 +198,18 @@
                 class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
                 <div class="d-flex align-items-center gap-2">
                     <h1 class="h2 mb-0">
-                        <i class="fas fa-balance-scale me-2 text-primary"></i>
                         Bilanz Endenergie
                     </h1>
-                    <span class="badge bg-primary fs-6">Aktiva vs. Passiva</span>
-                    <span class="badge bg-info text-dark">Uses latest recalculation values</span>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-
-                    <div class="btn-group">
-                        <select id="balance-driver" class="form-select form-select-sm">
-                            <option value="solar">Balance via Solar (LU_2.1)</option>
-                            <option value="wind">Balance via Wind (LU_1.1)</option>
-                        </select>
-                        <button id="balance-btn" class="btn btn-sm btn-warning" onclick="runBalance()">
-                            <i class="fas fa-solar-panel me-1"></i>Balance with Solar
-                        </button>
-                        <button id="balance-lu6-btn" class="btn btn-sm btn-primary" onclick="runBalanceLU6()">
-                            <i class="fas fa-wind me-1"></i>Balance with Wind
-                        </button>
-                    </div>
                 </div>
             </div>
 
             <!-- Info Box -->
             <div class="alert alert-info mb-4">
-                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Bilanz Overview</h5>
+                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Bilanzübersicht</h5>
                 <p class="mb-0">
-                    This balance sheet compares energy supply (Aktiva: Renewable + Fossil) with energy demand (Passiva:
-                    Verbrauch).
-                    <br><strong>Formula:</strong> Erneuerbar + Fossil (Aktiva) = Verbrauch (Passiva)
+                    Diese Seite vergleicht die Energieerzeugung und den Energieverbrauch in den vier Sektoren
+                    (Kraft/Licht/IKT/Kälte, Gebäudewärme, Prozesswärme, mobile Anwendungen) jeweils für
+                    Status und Ziel (2045).
                 </p>
             </div>
 
