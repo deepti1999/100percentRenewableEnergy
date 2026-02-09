@@ -613,7 +613,7 @@ def _balance_heat_sectors_after_ws():
     new_82_target = float(r82_fixed.target_value or 0)
 
     # Hard time budget so balancing always completes on Heroku dyno size.
-    max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "45"))
+    max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "20"))
     deadline = time.monotonic() + max(5.0, max_seconds)
 
     def _deadline_exceeded() -> bool:
@@ -852,6 +852,10 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     landuse_name = 'LU_2.1'
     old_landuse_percent = None
     new_landuse_percent = None
+    converged = False
+    gw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
+    pw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
+    final_drift = float('inf')
 
     with transaction.atomic():
         for cycle_index in range(max_convergence_cycles):
@@ -992,7 +996,15 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
             )
             if drift_ok and heat_ok:
                 print("   ✅ Converged: WS + heat both balanced")
+                converged = True
                 break
+
+        if not converged:
+            raise RuntimeError(
+                "WS balance did not converge within limits "
+                f"(cycles={completed_cycles}, drift={final_drift:.2f}, "
+                f"gw_gap={gw_after['gap']:.2f}, pw_gap={pw_after['gap']:.2f})"
+            )
     
     # Final verification
     final_drift = final_result['storage_drift'] if final_result else 0
@@ -1051,6 +1063,10 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
     landuse_name = 'LU_6'
     old_landuse_percent = None
     new_landuse_percent = None
+    converged = False
+    gw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
+    pw_after = {'gap': 0.0, 'demand': 0.0, 'supply': 0.0}
+    final_drift = float('inf')
 
     # Wind mode must not alter Solar/LU_2.1.
     r912_guard = RenewableData.objects.get(code='9.1.2')
@@ -1222,7 +1238,15 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
             )
             if drift_ok and heat_ok:
                 print("   ✅ Converged: WS + heat both balanced")
+                converged = True
                 break
+
+        if not converged:
+            raise RuntimeError(
+                "WS wind balance did not converge within limits "
+                f"(cycles={completed_cycles}, drift={final_drift:.2f}, "
+                f"gw_gap={gw_after['gap']:.2f}, pw_gap={pw_after['gap']:.2f})"
+            )
 
         # Guard-restore: keep Solar/LU_2.1 untouched in wind mode.
         r912_now = RenewableData.objects.get(code='9.1.2')

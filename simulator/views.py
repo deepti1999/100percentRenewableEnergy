@@ -3263,17 +3263,26 @@ def _run_ws_balance_job(run_id, mode):
     try:
         if mode == 'solar':
             from .ws_365_service import apply_balanced_landuse
-            result = apply_balanced_landuse(enable_heat_balance=True, max_convergence_cycles=3)
+            result = apply_balanced_landuse(enable_heat_balance=True, max_convergence_cycles=2)
         else:
             from .ws_365_service import apply_balanced_wind_landuse
-            result = apply_balanced_wind_landuse(enable_heat_balance=True, max_convergence_cycles=3)
+            result = apply_balanced_wind_landuse(enable_heat_balance=True, max_convergence_cycles=2)
 
-        summary = {
-            'type': 'ws_balance',
-            'mode': mode,
-            'status': 'success',
-            'result': result,
-        }
+        if result.get('success'):
+            summary = {
+                'type': 'ws_balance',
+                'mode': mode,
+                'status': 'success',
+                'result': result,
+            }
+        else:
+            summary = {
+                'type': 'ws_balance',
+                'mode': mode,
+                'status': 'error',
+                'error': result.get('error') or 'Balance failed',
+                'result': result,
+            }
     except Exception as exc:
         traceback.print_exc()
         summary = {
@@ -3349,7 +3358,7 @@ def ws_api_balance_job_status(request, run_id):
 
     status = summary.get('status', 'running')
     if status == 'running':
-        max_runtime = float(os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "180"))
+        max_runtime = float(os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "120"))
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if age_seconds > max_runtime:
             summary = {
