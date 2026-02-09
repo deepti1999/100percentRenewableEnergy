@@ -592,7 +592,7 @@ def _get_sector_totals():
     }
 
 
-def _balance_heat_sectors_after_ws():
+def _balance_heat_sectors_after_ws(mode="quick"):
     """
     After electricity/WS balancing, align heat-sector totals:
     - Gebäudewärme: 10.4 (supply) to 2.10 (demand) via Verbrauch 2.8 ziel
@@ -612,32 +612,52 @@ def _balance_heat_sectors_after_ws():
         r82_fixed.save(skip_cascade=True, update_fields=['target_value', 'is_fixed'])
     new_82_target = float(r82_fixed.target_value or 0)
 
-    # Hard time budget so balancing always completes on Heroku dyno size.
-    max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "20"))
+    profile = (mode or "quick").strip().lower()
+    if profile not in {"quick", "full"}:
+        profile = "quick"
+
+    if profile == "full":
+        # fix94-style profile: more settling/probing for accuracy.
+        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_FULL_MAX_SECONDS", "45"))
+        settle_rounds_default = 3
+        probe_steps = 6
+        use_fast_recalc = False
+    else:
+        # Timeout-safe profile for sync request paths.
+        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "20"))
+        settle_rounds_default = 2
+        probe_steps = 4
+        use_fast_recalc = True
+
     deadline = time.monotonic() + max(5.0, max_seconds)
 
     def _deadline_exceeded() -> bool:
         return time.monotonic() >= deadline
 
-    def settle_totals(trigger_prefix: str, max_rounds: int = 2, tolerance: float = 1.0):
+    def settle_totals(trigger_prefix: str, max_rounds: int = None, tolerance: float = 1.0):
         """
         Recalculate until heat-sector gaps stabilize.
         This avoids optimizing 2.8 against transient intermediate states.
         """
+        rounds = max_rounds if max_rounds is not None else settle_rounds_default
         prev = None
         current = None
-        for idx in range(max_rounds):
+        for idx in range(rounds):
             if _deadline_exceeded():
                 break
-            recalc_all_verbrauch(
-                trigger_code=f"{trigger_prefix}_{idx + 1}",
-                propagate_renewables=False,
-            )
-            recalc_all_renewables_full(
-                exclude_ws_dependent=False,
-                max_passes=2,
-                change_tolerance=1e-6,
-            )
+            if use_fast_recalc:
+                recalc_all_verbrauch(
+                    trigger_code=f"{trigger_prefix}_{idx + 1}",
+                    propagate_renewables=False,
+                )
+                recalc_all_renewables_full(
+                    exclude_ws_dependent=False,
+                    max_passes=2,
+                    change_tolerance=1e-6,
+                )
+            else:
+                recalc_all_verbrauch(trigger_code=f"{trigger_prefix}_{idx + 1}")
+                recalc_all_renewables_full(exclude_ws_dependent=False)
             current = _get_sector_totals()
             if prev is not None:
                 gw_delta = abs(current['gebaeudewaerme']['gap'] - prev['gebaeudewaerme']['gap'])
@@ -661,7 +681,7 @@ def _balance_heat_sectors_after_ws():
     def _clamp_28(value_28: float) -> float:
         return max(0.0, min(100.0, float(value_28)))
 
-    def apply_28_and_get_gap(value_28: float, settle_rounds: int = 2):
+    def apply_28_and_get_gap(value_28: float, settle_rounds: int = None):
         value_28 = _clamp_28(value_28)
         v28.ziel = value_28
         if v28.user_editable:
@@ -678,7 +698,8 @@ def _balance_heat_sectors_after_ws():
                 update_fields=['ziel']
             )
 
-        settled = settle_totals("ws_heat_balance_2_8", max_rounds=max(1, settle_rounds))
+        rounds = settle_rounds if settle_rounds is not None else settle_rounds_default
+        settled = settle_totals("ws_heat_balance_2_8", max_rounds=max(1, rounds))
         gap_now = float(settled['gebaeudewaerme']['gap'])
         return value_28, gap_now, settled
 
@@ -689,7 +710,7 @@ def _balance_heat_sectors_after_ws():
             best_gap = abs(gap_val)
             best_28 = x_val
 
-    def _evaluate_28_gap(value_28: float, settle_rounds: int = 2):
+    def _evaluate_28_gap(value_28: float, settle_rounds: int = None):
         """
         Evaluate a real committed state for 2.8 and return the resulting gap.
         """
@@ -704,7 +725,7 @@ def _balance_heat_sectors_after_ws():
         g_curr = old_gap
         probe_step = 0.5
 
-        for _ in range(4):
+        for _ in range(probe_steps):
             if _deadline_exceeded():
                 break
             if abs(g_curr) <= gw_gap_tolerance:
@@ -715,7 +736,7 @@ def _balance_heat_sectors_after_ws():
             if abs(x_probe - x_curr) < 1e-9:
                 break
 
-            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=2)
+            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=settle_rounds_default)
 
             slope = None
             if abs(x_probe - x_curr) > 1e-9:
@@ -728,7 +749,7 @@ def _balance_heat_sectors_after_ws():
                 max_jump = max(1.0, probe_step * 4.0)
                 x_guess = max(x_curr - max_jump, min(x_curr + max_jump, x_guess))
                 if abs(x_guess - x_probe) > 1e-9 and abs(x_guess - x_curr) > 1e-9:
-                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=2)
+                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=settle_rounds_default)
 
             candidates = [(x_curr, g_curr), (x_probe, g_probe)]
             if x_next is not None:
@@ -738,7 +759,7 @@ def _balance_heat_sectors_after_ws():
             current_state_x = candidates[-1][0]
 
             if abs(target_x - current_state_x) > 1e-9:
-                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=2)
+                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=settle_rounds_default)
                 _remember_candidate(target_x, target_gap)
             else:
                 target_gap = candidates[-1][1]
@@ -755,7 +776,10 @@ def _balance_heat_sectors_after_ws():
 
     # Set final best 2.8 and keep that state with full settling.
     v28.refresh_from_db(fields=['ziel', 'user_percent'])
-    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=2)
+    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(
+        best_28,
+        settle_rounds=settle_rounds_default
+    )
 
     # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
     r54 = RenewableData.objects.get(code='5.4')
@@ -789,7 +813,7 @@ def _balance_heat_sectors_after_ws():
         process_adjustment['reason'] = 'Cannot adjust 5.4.1 because 5.4 target is 0'
 
     # Recalculate until stable after both knob updates.
-    after = settle_totals("ws_heat_balance_final")
+    after = settle_totals("ws_heat_balance_final", max_rounds=settle_rounds_default)
 
     return {
         'before': before,
@@ -813,7 +837,7 @@ def _balance_heat_sectors_after_ws():
     }
 
 
-def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None):
+def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None, heat_profile="quick"):
     """
     Run Goal Seek, calculate required LandUse, and update LU_2.1 in database.
     
@@ -840,6 +864,9 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     heat_gap_tolerance = 100.0
     if enable_heat_balance is None:
         enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
+    heat_profile = (heat_profile or "quick").strip().lower()
+    if heat_profile not in {"quick", "full"}:
+        heat_profile = "quick"
 
     old_landuse = None
     required_landuse = None
@@ -945,7 +972,7 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
             # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
             if enable_heat_balance:
                 print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-                heat_balance = _balance_heat_sectors_after_ws()
+                heat_balance = _balance_heat_sectors_after_ws(mode=heat_profile)
                 gw_after = heat_balance['after']['gebaeudewaerme']
                 pw_after = heat_balance['after']['prozesswaerme']
                 print(
@@ -1032,7 +1059,7 @@ def apply_balanced_landuse(enable_heat_balance=None, max_convergence_cycles=None
     }
 
 
-def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles=None):
+def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles=None, heat_profile="quick"):
     """
     Run Goal Seek with Wind as variable, calculate required LU_6, and update database.
 
@@ -1050,6 +1077,9 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
     heat_gap_tolerance = 100.0
     if enable_heat_balance is None:
         enable_heat_balance = os.environ.get("WS_ENABLE_HEAT_BALANCE", "false").lower() == "true"
+    heat_profile = (heat_profile or "quick").strip().lower()
+    if heat_profile not in {"quick", "full"}:
+        heat_profile = "quick"
 
     old_landuse = None
     required_landuse = None
@@ -1185,7 +1215,7 @@ def apply_balanced_wind_landuse(enable_heat_balance=None, max_convergence_cycles
             # Step 6: Heat balancing (optional; can exceed Heroku request timeout in production).
             if enable_heat_balance:
                 print("🔥 Balancing heat sectors (10.4↔2.10, 10.5↔3.7)...")
-                heat_balance = _balance_heat_sectors_after_ws()
+                heat_balance = _balance_heat_sectors_after_ws(mode=heat_profile)
                 gw_after = heat_balance['after']['gebaeudewaerme']
                 pw_after = heat_balance['after']['prozesswaerme']
                 print(

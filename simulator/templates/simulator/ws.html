@@ -445,7 +445,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function waitForBalanceJob(runId, mode, btn) {
-        const maxPolls = 180; // ~3 minutes at 1s polling
+        const maxPolls = 300; // ~5 minutes at 1s polling
 
         for (let poll = 1; poll <= maxPolls; poll++) {
             const statusResponse = await fetch(`/api/ws/balance-job/${runId}/`, {

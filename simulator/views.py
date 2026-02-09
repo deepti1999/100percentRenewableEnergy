@@ -3245,7 +3245,59 @@ def ws_api_apply_balance_wind(request):
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
 
-def _run_ws_balance_job(run_id, mode):
+def _coerce_bool(value, default):
+    """Parse bool-like payload/env values with safe fallback."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {'1', 'true', 'yes', 'on'}:
+            return True
+        if normalized in {'0', 'false', 'no', 'off'}:
+            return False
+    return default
+
+
+def _coerce_int(value, default, minimum=None, maximum=None):
+    """Parse integer-like values and clamp to optional bounds."""
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = int(default)
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _coerce_float(value, default, minimum=None, maximum=None):
+    """Parse float-like values and clamp to optional bounds."""
+    try:
+        parsed = float(value)
+    except Exception:
+        parsed = float(default)
+    if minimum is not None:
+        parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _coerce_choice(value, allowed, default):
+    """Normalize string-like enum values with fallback."""
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in allowed:
+            return normalized
+    return default
+
+
+def _run_ws_balance_job(run_id, mode, enable_heat_balance, max_convergence_cycles, heat_profile):
     """
     Background runner for full WS balancing.
     Runs full logic (including heat balancing) outside request-response timeout.
@@ -3256,6 +3308,9 @@ def _run_ws_balance_job(run_id, mode):
     summary = {
         'type': 'ws_balance',
         'mode': mode,
+        'enable_heat_balance': enable_heat_balance,
+        'max_convergence_cycles': max_convergence_cycles,
+        'heat_profile': heat_profile,
         'status': 'error',
         'error': 'Unknown error',
     }
@@ -3263,15 +3318,26 @@ def _run_ws_balance_job(run_id, mode):
     try:
         if mode == 'solar':
             from .ws_365_service import apply_balanced_landuse
-            result = apply_balanced_landuse(enable_heat_balance=True, max_convergence_cycles=2)
+            result = apply_balanced_landuse(
+                enable_heat_balance=enable_heat_balance,
+                max_convergence_cycles=max_convergence_cycles,
+                heat_profile=heat_profile,
+            )
         else:
             from .ws_365_service import apply_balanced_wind_landuse
-            result = apply_balanced_wind_landuse(enable_heat_balance=True, max_convergence_cycles=2)
+            result = apply_balanced_wind_landuse(
+                enable_heat_balance=enable_heat_balance,
+                max_convergence_cycles=max_convergence_cycles,
+                heat_profile=heat_profile,
+            )
 
         if result.get('success'):
             summary = {
                 'type': 'ws_balance',
                 'mode': mode,
+                'enable_heat_balance': enable_heat_balance,
+                'max_convergence_cycles': max_convergence_cycles,
+                'heat_profile': heat_profile,
                 'status': 'success',
                 'result': result,
             }
@@ -3279,6 +3345,9 @@ def _run_ws_balance_job(run_id, mode):
             summary = {
                 'type': 'ws_balance',
                 'mode': mode,
+                'enable_heat_balance': enable_heat_balance,
+                'max_convergence_cycles': max_convergence_cycles,
+                'heat_profile': heat_profile,
                 'status': 'error',
                 'error': result.get('error') or 'Balance failed',
                 'result': result,
@@ -3288,6 +3357,9 @@ def _run_ws_balance_job(run_id, mode):
         summary = {
             'type': 'ws_balance',
             'mode': mode,
+            'enable_heat_balance': enable_heat_balance,
+            'max_convergence_cycles': max_convergence_cycles,
+            'heat_profile': heat_profile,
             'status': 'error',
             'error': str(exc),
         }
@@ -3318,19 +3390,59 @@ def ws_api_start_balance_job(request):
     if mode not in {'solar', 'wind'}:
         return JsonResponse({'success': False, 'error': 'Invalid mode'}, status=400)
 
+    default_max_cycles = _coerce_int(
+        os.environ.get("WS_BALANCE_MAX_CONVERGENCE_CYCLES", "3"),
+        default=3,
+        minimum=1,
+        maximum=24,
+    )
+    requested_cycles = payload.get('max_convergence_cycles')
+    if requested_cycles is None:
+        requested_cycles = payload.get('max_cycles')
+    max_convergence_cycles = _coerce_int(
+        requested_cycles,
+        default=default_max_cycles,
+        minimum=1,
+        maximum=24,
+    )
+    default_heat_balance = _coerce_bool(
+        os.environ.get("WS_BALANCE_JOB_ENABLE_HEAT_BALANCE", "true"),
+        default=True,
+    )
+    enable_heat_balance = _coerce_bool(
+        payload.get('enable_heat_balance'),
+        default=default_heat_balance,
+    )
+    default_heat_profile = _coerce_choice(
+        os.environ.get("WS_BALANCE_HEAT_PROFILE", "full"),
+        allowed={'quick', 'full'},
+        default='full',
+    )
+    heat_profile = _coerce_choice(
+        payload.get('heat_profile'),
+        allowed={'quick', 'full'},
+        default=default_heat_profile,
+    )
+    if enable_heat_balance and heat_profile == 'full':
+        # Prevent under-constrained runs like cycles=2 that frequently fail on Heroku.
+        max_convergence_cycles = max(3, max_convergence_cycles)
+
     run = CalculationRun.objects.create(
         duration_ms=0,
         triggered_by=request.user.username,
         summary={
             'type': 'ws_balance',
             'mode': mode,
+            'enable_heat_balance': enable_heat_balance,
+            'max_convergence_cycles': max_convergence_cycles,
+            'heat_profile': heat_profile,
             'status': 'running',
         },
     )
 
     thread = threading.Thread(
         target=_run_ws_balance_job,
-        args=(run.id, mode),
+        args=(run.id, mode, enable_heat_balance, max_convergence_cycles, heat_profile),
         daemon=True,
     )
     thread.start()
@@ -3340,6 +3452,9 @@ def ws_api_start_balance_job(request):
         'status': 'running',
         'run_id': run.id,
         'mode': mode,
+        'enable_heat_balance': enable_heat_balance,
+        'max_convergence_cycles': max_convergence_cycles,
+        'heat_profile': heat_profile,
     })
 
 
@@ -3358,12 +3473,31 @@ def ws_api_balance_job_status(request, run_id):
 
     status = summary.get('status', 'running')
     if status == 'running':
-        max_runtime = float(os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "120"))
+        configured_cycles = _coerce_int(
+            summary.get('max_convergence_cycles'),
+            default=1,
+            minimum=1,
+            maximum=24,
+        )
+        base_runtime = _coerce_float(
+            os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "150"),
+            default=150.0,
+            minimum=60.0,
+        )
+        per_cycle_runtime = _coerce_float(
+            os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "40"),
+            default=40.0,
+            minimum=5.0,
+        )
+        max_runtime = max(base_runtime, configured_cycles * per_cycle_runtime)
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if age_seconds > max_runtime:
             summary = {
                 'type': 'ws_balance',
                 'mode': summary.get('mode'),
+                'enable_heat_balance': summary.get('enable_heat_balance'),
+                'max_convergence_cycles': summary.get('max_convergence_cycles'),
+                'heat_profile': summary.get('heat_profile'),
                 'status': 'error',
                 'error': f'Balance exceeded runtime limit ({int(max_runtime)}s).',
             }
@@ -3378,6 +3512,9 @@ def ws_api_balance_job_status(request, run_id):
         'run_id': run.id,
         'duration_ms': run.duration_ms,
         'mode': summary.get('mode'),
+        'enable_heat_balance': summary.get('enable_heat_balance'),
+        'max_convergence_cycles': summary.get('max_convergence_cycles'),
+        'heat_profile': summary.get('heat_profile'),
     }
 
     if status == 'success':
