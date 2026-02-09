@@ -437,6 +437,11 @@ class LandUse(models.Model):
     
     # User input for custom percentage calculations
     user_percent = models.FloatField(null=True, blank=True, help_text="User-defined percentage for target calculations")
+    increase_limit_baseline_percent = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Fixed baseline percent for max-increase validation (+LANDUSE_MAX_INCREASE_PERCENT points).",
+    )
     target_locked = models.BooleanField(default=False, help_text="Preserve manual target_ha edits from parent cascades")
     
     # Hierarchical relationship - will be set from Parent_Code in CSV

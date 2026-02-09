@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/update/<str:code>/', views.update_user_percent, name='update_user_percent_code'),
     path('api/save-all-inputs/', views.save_all_user_inputs, name='save_all_inputs'),
     path('api/run-full-recalc/', views.run_full_recalc_view, name='run_full_recalc'),
+    path('api/recalc-renewables/', views.run_renewables_recalc_view, name='recalc_renewables'),
     path('api/recalc-verbrauch/', views.recalc_verbrauch_view, name='recalc_verbrauch'),
     path('api/recalc-ws-formulas/', views.recalc_ws_formulas_view, name='recalc_ws_formulas'),
     path('api/update-verbrauch-bulk/', views.update_verbrauch_bulk, name='update_verbrauch_user_percent_bulk'),

@@ -191,94 +191,113 @@
                 The system ensures all sector percentages always sum to 100%. When you change one percentage, the system automatically redistributes the remaining percentage across other sectors proportionally.
             </div>
             
-            <h3>Step 5: Accessing the Cockpit Dashboard</h3>
+            <h3>Step 5: Recalculate Renewables After Verbrauch Changes</h3>
             <div class="step-item">
-                <strong>Click on "Cockpit" from the sidebar to view the visual energy dashboard</strong>
+                <strong>After changing anything in Verbrauch, go to Erneuerbare Energien and click "Recalculate Renewables"</strong>
             </div>
-            
+
             <div class="screenshot-container">
-                <img src="{% static 'simulator/images/manual/cockpit_step6.png' %}" 
-                     alt="Cockpit Dashboard Overview">
-                <p class="screenshot-caption">Figure 5: Cockpit dashboard showing the visual overview of energy data</p>
+                <img src="{% static 'simulator/images/manual/renewable_step5_new.png' %}?v=3" 
+                     alt="Recalculate Renewables Button">
+                <p class="screenshot-caption">Figure 5: Renewable Energy page with the "Recalculate Renewables" button</p>
             </div>
-            
-            <p>The Cockpit provides a comprehensive visual dashboard:</p>
+
+            <p>This recalculation step is required after Verbrauch updates:</p>
             <ul>
-                <li><strong>Visual Overview:</strong> See all energy data presented in an easy-to-understand visual format</li>
-                <li><strong>Quick Access:</strong> Navigate to the Cockpit from the main sidebar menu</li>
-                <li><strong>Real-time Data:</strong> All charts and visualizations reflect the current state of your energy system</li>
-                <li><strong>Sector Analysis:</strong> View detailed breakdowns by energy sector and consumption type</li>
+                <li><strong>Sync formulas:</strong> Rebuilds renewable status and target values using the latest inputs</li>
+                <li><strong>Keep data current:</strong> Ensures the Renewable page reflects all recent Verbrauch changes</li>
+                <li><strong>Prepare next steps:</strong> Use this before checking Cockpit, WS (365 Tage), or Bilanz results</li>
             </ul>
             
-            <h3>Step 6: Understanding Visual Representations</h3>
+            <h3>Step 6: Check Bilanz Balance Status</h3>
             <div class="step-item">
-                <strong>Analyze the visual charts showing both Status and Target (Ziel) values</strong>
+                <strong>Open "Bilanz" and check the WS-365 Balance Status chart</strong>
             </div>
             
             <div class="screenshot-container">
-                <img src="{% static 'simulator/images/manual/cockpit_step7.png' %}" 
-                     alt="Cockpit Visual Charts">
-                <p class="screenshot-caption">Figure 6: Visual representations showing Status vs Target (Ziel) for each sector</p>
+                <img src="{% static 'simulator/images/manual/bilanz_step6.png' %}?v=1" 
+                     alt="Bilanz WS-365 Balance Status">
+                <p class="screenshot-caption">Figure 6: Bilanz page showing WS-365 balance status</p>
+            </div>
+
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/bilanz_step6_sectors.png' %}?v=1" 
+                     alt="Bilanz Sector Balance Status">
+                <p class="screenshot-caption">Figure 6b: Bilanz page showing whether each sector is balanced</p>
             </div>
             
-            <p>The visual representations help you understand:</p>
+            <p>This step gives a quick visual check of WS-365 balancing:</p>
             <ul>
-                <li><strong>Status Values:</strong> Current actual energy generation and consumption levels for each sector</li>
-                <li><strong>Target (Ziel) Values:</strong> Planned or goal values for each energy sector</li>
-                <li><strong>Sector Comparison:</strong> Compare performance across different energy sectors at a glance</li>
-                <li><strong>Gap Analysis:</strong> Easily identify gaps between current status and target goals</li>
-                <li><strong>Interactive Charts:</strong> Visual representations update automatically when you modify land use or consumption data</li>
+                <li><strong>If it looks balanced, it is balanced:</strong> When the status and drift indicators show balanced values, the 365-day cycle is closed.</li>
+                <li><strong>Sector check:</strong> Use the sector-wise Bilanz view to confirm each sector is balanced.</li>
+                <li><strong>Visual confirmation:</strong> Use this chart as the fast final check after balancing.</li>
+            </ul>
+
+            <h3>Step 7: Review WS (365 Tage) and Choose Balance Path</h3>
+            <div class="step-item">
+                <strong>Open "WS (365 Tage)", review the full-year data, then decide whether to balance via Solar or Wind</strong>
+            </div>
+
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/ws_365_step6.png' %}?v=2" 
+                     alt="WS 365 Tage Data and Balance Options">
+                <p class="screenshot-caption">Figure 7: WS (365 Tage) page with yearly data, balance options, and CSV export</p>
+            </div>
+
+            <p>The WS (365 Tage) view is the main decision screen before balancing:</p>
+            <ul>
+                <li><strong>Full 365-day visibility:</strong> You can review daily production, demand, storage behavior, and trends across the full year.</li>
+                <li><strong>Choose balancing path:</strong> Based on the yearly profile, select <strong>Balance by Solar</strong> or <strong>Balance by Wind</strong>.</li>
+                <li><strong>Decision support:</strong> Compare both result cards and pick the path that best matches your planning objective.</li>
+                <li><strong>CSV export:</strong> Use <strong>CSV Export</strong> to download all 365-day data for external analysis, documentation, or reporting.</li>
+            </ul>
+            
+            <h3>Step 8: Understanding Visual Representations</h3>
+            <div class="step-item">
+                <strong>Interpret the Cockpit sector chart to verify whether renewable production is aligned with demand</strong>
+            </div>
+            
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/cockpit_step8_deficit.png' %}?v=1" 
+                     alt="Cockpit Sector Chart - Deficit Cases">
+                <p class="screenshot-caption">Figure 8a: Cockpit sector view showing sector deficits with red delta markers</p>
+            </div>
+            
+            <p>Figure 8a represents the imbalance case and highlights required action:</p>
+            <ul>
+                <li><strong>Paired sector bars:</strong> Blue shows sector demand (Verbrauch), green shows renewable supply (Erneuerbare) for the same sector.</li>
+                <li><strong>Red delta badges (e.g., Δ -404):</strong> Demand is higher than renewable production in that sector.</li>
+                <li><strong>Sector-level gap detection:</strong> Each red marker quantifies the deficit directly in MWh/a, enabling targeted correction.</li>
+                <li><strong>Follow-up action:</strong> Use WS/Bilanz balancing functions to close these sector gaps, then re-check the cockpit for updated markers.</li>
+                <li><strong>Validation loop:</strong> The chart serves as a visual control step after each recalculation and balancing cycle.</li>
+            </ul>
+
+            <div class="screenshot-container">
+                <img src="{% static 'simulator/images/manual/cockpit_step8_balanced.png' %}?v=1" 
+                     alt="Cockpit Sector Chart - Balanced">
+                <p class="screenshot-caption">Figure 8b: Cockpit sector view with balanced demand and renewable production</p>
+            </div>
+
+            <p>Figure 8b represents the balanced case and should be read as follows:</p>
+            <ul>
+                <li><strong>Balanced indicator:</strong> The light-blue <strong>Perfekt</strong> badge means the sector difference is within the accepted tolerance and considered balanced.</li>
+                <li><strong>Operational meaning:</strong> In this view, balancing actions have aligned renewable output with sector demand at cockpit level.</li>
+                <li><strong>Quick decision support:</strong> You can immediately confirm that no sector requires corrective balancing.</li>
+                <li><strong>Stable visual state:</strong> Similar bar heights with <strong>Perfekt</strong> markers indicate a robust and consistent system state.</li>
             </ul>
             
             <div class="note-box">
                 <strong>💡 Tip:</strong>
-                Use the Cockpit's visual representations to quickly identify which sectors are meeting their targets and which need adjustment. The side-by-side comparison of Status and Ziel makes it easy to track your progress toward energy goals.
+                Use Step 8 as a fast visual quality check: <strong>Perfekt</strong> badges indicate balanced sectors, while red delta badges indicate where additional balancing is still required.
             </div>
-            
-            <h3>Step 7: Using Balance Buttons (Bilanz)</h3>
+
+            <h3>Abschluss: Visuelle Qualitätskontrolle</h3>
             <div class="step-item">
-                <strong>Navigate to Bilanz page and use the balance buttons to automatically adjust renewable energy</strong>
+                <strong>Die Cockpit-Visualisierung ist Ihr finaler Qualitätscheck: erst Defizite erkennen, dann auf einen stabilen "Perfekt"-Zustand führen.</strong>
             </div>
-            
-            <div class="screenshot-container">
-                <img src="{% static 'simulator/images/manual/bilanz_step8.png' %}" 
-                     alt="Balance Buttons">
-                <p class="screenshot-caption">Figure 7: Bilanz page showing "Balance with Solar" and "Balance with Wind" buttons</p>
-            </div>
-            
-            <p>The Bilanz page provides powerful automated balancing tools:</p>
-            <ul>
-                <li><strong>Balance with Solar:</strong> Click this button to automatically adjust solar panel area (LU_2.1) to match energy demand with renewable generation</li>
-                <li><strong>Balance with Wind:</strong> Click this button to automatically adjust wind turbine area (LU_1.1) to achieve energy balance</li>
-                <li><strong>Automatic Calculation:</strong> The system calculates the exact land use area needed to balance supply and demand</li>
-                <li><strong>One-Click Solution:</strong> Instantly optimize your renewable energy configuration without manual adjustments</li>
-                <li><strong>Real-time Updates:</strong> Land use and renewable energy values update immediately after balancing</li>
-            </ul>
-            
-            <h3>Step 8: Viewing Final Balance Results</h3>
-            <div class="step-item">
-                <strong>Check the final balance showing total demand and total renewable energy generation</strong>
-            </div>
-            
-            <div class="screenshot-container">
-                <img src="{% static 'simulator/images/manual/bilanz_step9.png' %}" 
-                     alt="Balance Results">
-                <p class="screenshot-caption">Figure 8: Final balance showing demand vs renewable energy with detailed breakdown</p>
-            </div>
-            
-            <p>Understanding the balance results:</p>
-            <ul>
-                <li><strong>Total Demand:</strong> View the complete energy demand across all consumption sectors</li>
-                <li><strong>Total Renewable Energy:</strong> See the total renewable energy generation from all sources (solar, wind, hydro, biomass)</li>
-                <li><strong>Balance Status:</strong> Instantly see if your renewable energy matches, exceeds, or falls short of demand</li>
-                <li><strong>Sector Breakdown:</strong> Detailed view of energy generation and consumption by individual sectors</li>
-                <li><strong>Gap Analysis:</strong> Identify any shortfall or surplus in your energy balance</li>
-                <li><strong>Verification:</strong> Confirm that your balance buttons successfully aligned renewable supply with energy demand</li>
-            </ul>
-            
             <div class="note-box">
-                <strong>✅ Success Indicator:</strong>
-                When Total Renewable Energy equals or exceeds Total Demand, your system is successfully balanced! The balance buttons help you achieve this optimal state automatically by adjusting the necessary land use parameters.
+                <strong>✅ Ergebnis:</strong>
+                Wenn die Sektoren ohne rote Delta-Marker dargestellt werden und die Anzeigen konsistent bleiben, ist der aktuelle Simulationsstand visuell und fachlich sauber validiert.
             </div>
         </div>
     </div>

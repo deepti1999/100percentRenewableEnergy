@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib import messages
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -20,6 +21,70 @@ from simulator.goal_seek import goal_seek
 from simulator.signals import compute_ws_diagram_reference, recalculate_ws_data, get_ws_constants
 from calculation_engine.bilanz_engine import calculate_bilanz_data, get_renewable_value
 from simulator.ws_formula_service import recalculate_all_ws_data
+
+# =============================================================================
+# LANDUSE VALIDATION HELPERS
+# =============================================================================
+
+def _get_landuse_current_percent(landuse):
+    """
+    Current editable percent shown to user.
+    Priority: user_percent -> target share -> 0.
+    """
+    if landuse.user_percent is not None:
+        return float(landuse.user_percent)
+
+    if landuse.parent and landuse.parent.target_ha and landuse.target_ha is not None:
+        parent_target = float(landuse.parent.target_ha or 0)
+        if parent_target > 0:
+            return float(landuse.target_ha) / parent_target * 100.0
+
+    return 0.0
+
+
+def _get_landuse_baseline_percent(landuse):
+    """
+    Immutable baseline for max-increase validation.
+    If stored baseline exists, use it; otherwise fallback to current percent.
+    """
+    if getattr(landuse, 'increase_limit_baseline_percent', None) is not None:
+        return float(landuse.increase_limit_baseline_percent)
+
+    return _get_landuse_current_percent(landuse)
+
+
+def _ensure_landuse_baseline_percent(landuse):
+    """
+    Persist baseline once from current percent so repeated +3 edits cannot bypass the cap.
+    """
+    baseline = _get_landuse_baseline_percent(landuse)
+    if getattr(landuse, 'increase_limit_baseline_percent', None) is None:
+        landuse.increase_limit_baseline_percent = baseline
+        # Save only baseline metadata; avoid heavy cascades.
+        landuse.save(update_fields=['increase_limit_baseline_percent'], skip_cascade=True)
+    return float(baseline)
+
+
+def _check_landuse_increase_limit(landuse, requested_percent):
+    """
+    Enforce absolute increase cap from baseline (not from last edited value).
+    Returns (is_valid, details_dict).
+    """
+    max_increase_points = float(getattr(settings, 'LANDUSE_MAX_INCREASE_PERCENT', 3))
+    baseline_percent = _ensure_landuse_baseline_percent(landuse)
+    current_percent = _get_landuse_current_percent(landuse)
+    max_allowed_value = baseline_percent + max_increase_points
+    increase_from_baseline = requested_percent - baseline_percent
+
+    is_valid = increase_from_baseline <= (max_increase_points + 1e-9)
+    return is_valid, {
+        'max_increase_points': max_increase_points,
+        'baseline_percent': baseline_percent,
+        'current_percent': current_percent,
+        'requested_percent': requested_percent,
+        'increase_from_baseline': increase_from_baseline,
+        'max_allowed_value': max_allowed_value,
+    }
 
 # =============================================================================
 # FORMULA SOURCES - 100% DATABASE DRIVEN
@@ -690,36 +755,20 @@ def update_user_percent(request):
             except (ValueError, TypeError):
                 return JsonResponse({'success': False, 'error': 'Invalid percentage value'})
 
-            # ===================================================================
-            # VALIDATION: Prevent excessive land use increases (percentage points)
-            # ===================================================================
-            from django.conf import settings
-            MAX_INCREASE_PERCENTAGE_POINTS = getattr(settings, 'LANDUSE_MAX_INCREASE_PERCENT', 3)
-            
-            # Use existing user_percent OR calculate from target_ha if user_percent not set
-            if landuse.user_percent is not None:
-                current_percent = landuse.user_percent
-            elif landuse.parent and landuse.parent.target_ha and landuse.target_ha:
-                # Calculate current percentage from target_ha
-                current_percent = (landuse.target_ha / landuse.parent.target_ha * 100) if landuse.parent.target_ha > 0 else 0
-            else:
-                current_percent = 0
-            
-            if current_percent > 0:
-                percentage_point_change = percent_val - current_percent
-                
-                if percentage_point_change > MAX_INCREASE_PERCENTAGE_POINTS:
-                    max_allowed_value = current_percent + MAX_INCREASE_PERCENTAGE_POINTS
-                    return JsonResponse({
-                        'success': False,
-                        'error': f"⚠️ Cannot increase by more than {MAX_INCREASE_PERCENTAGE_POINTS} percentage points.\n\n"
-                                f"Current: {current_percent:.2f}%\n"
-                                f"Requested: {percent_val:.2f}%\n"
-                                f"Increase: {percentage_point_change:.2f} points\n"
-                                f"Maximum allowed: {max_allowed_value:.2f}%",
-                        'current_value': float(current_percent),
-                        'max_allowed_value': float(max_allowed_value),
-                    })
+            is_valid, details = _check_landuse_increase_limit(landuse, percent_val)
+            if not is_valid:
+                return JsonResponse({
+                    'success': False,
+                    'error': f"⚠️ Cannot increase by more than {details['max_increase_points']:.0f} percentage points from baseline.\n\n"
+                            f"Baseline (Status): {details['baseline_percent']:.2f}%\n"
+                            f"Current Input: {details['current_percent']:.2f}%\n"
+                            f"Requested: {details['requested_percent']:.2f}%\n"
+                            f"Increase from baseline: {details['increase_from_baseline']:.2f} points\n"
+                            f"Maximum allowed: {details['max_allowed_value']:.2f}%",
+                    'current_value': float(details['current_percent']),
+                    'baseline_value': float(details['baseline_percent']),
+                    'max_allowed_value': float(details['max_allowed_value']),
+                })
 
             # Auto-unlock if locked (user edits should always be allowed)
             if landuse.target_locked:
@@ -770,9 +819,6 @@ def save_all_user_inputs(request):
         items_to_save = []
         
         # First pass: prepare all updates
-        from django.conf import settings
-        MAX_INCREASE_PERCENTAGE_POINTS = getattr(settings, 'LANDUSE_MAX_INCREASE_PERCENT', 3)
-        
         for code, percent in user_inputs.items():
             try:
                 if percent == '' or percent is None:
@@ -783,35 +829,21 @@ def save_all_user_inputs(request):
                 # Get parent target_ha to calculate new target_ha
                 landuse = LandUse.objects.select_related('parent').get(code=code)
                 
-                # ===================================================================
-                # VALIDATION: Prevent excessive land use increases (percentage points)
-                # ===================================================================
-                # Use existing user_percent OR calculate from target_ha if user_percent not set
-                if landuse.user_percent is not None:
-                    current_percent = landuse.user_percent
-                elif landuse.parent and landuse.parent.target_ha and landuse.target_ha:
-                    # Calculate current percentage from target_ha
-                    current_percent = (landuse.target_ha / landuse.parent.target_ha * 100) if landuse.parent.target_ha > 0 else 0
-                else:
-                    current_percent = 0
+                current_percent = _get_landuse_current_percent(landuse)
 
                 # Skip unchanged values so "Save All" doesn't rewrite target_ha
                 # for rows the user did not actually modify.
                 if abs(percent_val - current_percent) < 1e-9:
                     continue
-                
-                if current_percent > 0:
-                    percentage_point_change = percent_val - current_percent
-                    
-                    if percentage_point_change > MAX_INCREASE_PERCENTAGE_POINTS:
-                        max_allowed_value = current_percent + MAX_INCREASE_PERCENTAGE_POINTS
-                        errors.append(
-                            f"❌ {code}: Cannot increase by {percentage_point_change:.2f} points "
-                            f"(max {MAX_INCREASE_PERCENTAGE_POINTS}). Current: {current_percent:.2f}%, "
-                            f"Max allowed: {max_allowed_value:.2f}%"
-                        )
-                        continue  # Skip this item
-                # ===================================================================
+
+                is_valid, details = _check_landuse_increase_limit(landuse, percent_val)
+                if not is_valid:
+                    errors.append(
+                        f"❌ {code}: Cannot increase by {details['increase_from_baseline']:.2f} points "
+                        f"from baseline {details['baseline_percent']:.2f}% "
+                        f"(max +{details['max_increase_points']:.0f} -> {details['max_allowed_value']:.2f}%)."
+                    )
+                    continue  # Skip this item
                 
                 # Auto-unlock if locked (user edits should always be allowed)
                 if landuse.target_locked:
@@ -939,6 +971,21 @@ def update_user_percent(request, code):
         print(f"🚀 API CALL: Updating {code} = {new_percent}%")
         print(f"📍 Total area: {total_area:.2f}ha")
         
+        # Enforce absolute +3pp cap from baseline status share
+        if node.parent:
+            is_valid, details = _check_landuse_increase_limit(node, new_percent)
+            if not is_valid:
+                return JsonResponse({
+                    'success': False,
+                    'error': (
+                        f"Cannot increase {code} above {details['max_allowed_value']:.2f}% "
+                        f"(baseline {details['baseline_percent']:.2f}% + "
+                        f"{details['max_increase_points']:.0f}pp limit)."
+                    ),
+                    'baseline_value': float(details['baseline_percent']),
+                    'max_allowed_value': float(details['max_allowed_value']),
+                })
+
         # Use master update function
         update_node(node, new_percent, total_area)
         
@@ -1580,53 +1627,30 @@ def update_landuse_percent(request, pk):
                 "message": "Cannot update root level land use"
             }, status=400)
         
-        # ===================================================================
-        # VALIDATION RULE: Prevent excessive land use increases
-        # Maximum allowed increase configured in settings.py (in percentage POINTS)
-        # This prevents unrealistic jumps in land use allocation
-        # Example: If MAX = 3, user can go from 10% to 13% (not 10% to 10.3%)
-        # ===================================================================
-        from django.conf import settings
-        MAX_INCREASE_PERCENTAGE_POINTS = getattr(settings, 'LANDUSE_MAX_INCREASE_PERCENT', 3)
-        
-        # Use existing user_percent OR calculate from target_ha if user_percent not set
-        # This ensures validation works even when user_percent hasn't been set yet
-        if landuse.user_percent is not None:
-            current_percent = landuse.user_percent
-        elif landuse.parent and landuse.parent.target_ha and landuse.target_ha:
-            # Calculate current percentage from target_ha
-            current_percent = (landuse.target_ha / landuse.parent.target_ha * 100) if landuse.parent.target_ha > 0 else 0
-        else:
-            current_percent = 0
-        
-        # Calculate absolute percentage point change (not relative change)
-        if current_percent > 0:
-            percentage_point_change = new_percent - current_percent
-            
-            # Check if increase exceeds maximum allowed (in percentage points)
-            if percentage_point_change > MAX_INCREASE_PERCENTAGE_POINTS:
-                max_allowed_value = current_percent + MAX_INCREASE_PERCENTAGE_POINTS
-                return JsonResponse({
-                    "status": "error",
-                    "message": f"⚠️ Cannot increase land use by more than {MAX_INCREASE_PERCENTAGE_POINTS} percentage points.\n\n"
-                              f"Current: {current_percent:.2f}%\n"
-                              f"Requested: {new_percent:.2f}%\n"
-                              f"Increase: {percentage_point_change:.2f} percentage points\n"
-                              f"Maximum allowed: {max_allowed_value:.2f}%\n\n"
-                              f"Please increase gradually to maintain realistic land use changes.",
-                    "current_value": float(current_percent),
-                    "max_allowed_value": float(max_allowed_value),
-                    "max_increase_percent": MAX_INCREASE_PERCENTAGE_POINTS
-                }, status=400)
-        # If current is 0, allow any positive value up to 100% (starting from zero is OK)
-        
+        is_valid, details = _check_landuse_increase_limit(landuse, new_percent)
+        if not is_valid:
+            return JsonResponse({
+                "status": "error",
+                "message": f"⚠️ Cannot increase land use by more than {details['max_increase_points']:.0f} percentage points from baseline.\n\n"
+                          f"Baseline (Status): {details['baseline_percent']:.2f}%\n"
+                          f"Current Input: {details['current_percent']:.2f}%\n"
+                          f"Requested: {details['requested_percent']:.2f}%\n"
+                          f"Increase from baseline: {details['increase_from_baseline']:.2f} percentage points\n"
+                          f"Maximum allowed: {details['max_allowed_value']:.2f}%\n\n"
+                          f"Please stay within the allowed range.",
+                "current_value": float(details['current_percent']),
+                "baseline_value": float(details['baseline_percent']),
+                "max_allowed_value": float(details['max_allowed_value']),
+                "max_increase_percent": float(details['max_increase_points'])
+            }, status=400)
+
         # Auto-unlock if locked (user edits should always be allowed)
         if landuse.target_locked:
             landuse.target_locked = False
         
         # Store old values for change tracking
         old_target_ha = landuse.target_ha
-        old_percent = landuse.user_percent if landuse.user_percent is not None else current_percent
+        old_percent = _get_landuse_current_percent(landuse)
         
         # Calculate new target_ha from user_percent
         parent_target = landuse.parent.target_ha or 0
@@ -2685,6 +2709,41 @@ def run_full_recalc_view(request):
     )
 
 
+@login_required
+@require_http_methods(["POST"])
+def run_renewables_recalc_view(request):
+    """
+    Recalculate renewable formulas only (no Verbrauch/WS recalculation).
+    Used by the Renewable page action button.
+    """
+    import time
+
+    start = time.perf_counter()
+    renewables_updated = recalc_all_renewables_full(exclude_ws_dependent=False)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+
+    summary = {
+        "duration_ms": duration_ms,
+        "renewables_updated": renewables_updated,
+        "scope": "renewables_only",
+    }
+    run = CalculationRun.objects.create(
+        duration_ms=duration_ms,
+        summary=summary,
+        triggered_by=request.user.username,
+    )
+    request.session["latest_run_id"] = run.id
+    return JsonResponse(
+        {
+            "status": "ok",
+            "run_id": run.id,
+            "duration_ms": duration_ms,
+            "summary": summary,
+            "created_at": run.created_at.isoformat(),
+        }
+    )
+
+
 @csrf_exempt
 @login_required
 @require_http_methods(["POST"])
@@ -2856,6 +2915,7 @@ def restore_baseline(request):
         from pathlib import Path
         from django.conf import settings
         from django.db import connection
+        from django.core.management import call_command
         
         base_dir = settings.BASE_DIR
         current_db = base_dir / 'db.sqlite3'
@@ -2872,10 +2932,14 @@ def restore_baseline(request):
         
         # Copy baseline to current
         shutil.copy2(baseline_db, current_db)
+
+        # Ensure restored DB is upgraded to current schema
+        # (important when baseline snapshot is older than current code)
+        call_command('migrate', interactive=False, verbosity=0)
         
         return JsonResponse({
             'status': 'ok',
-            'message': 'Database restored to baseline successfully. Please refresh the page.'
+            'message': 'Database restored to baseline successfully and migrations applied. Please refresh the page.'
         })
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)}, status=500)

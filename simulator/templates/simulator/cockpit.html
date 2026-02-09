@@ -73,6 +73,13 @@
         padding: 20px;
     }
 
+    .main-sector-chart {
+        height: 84vh;
+        min-height: 780px;
+        margin-bottom: 10px;
+        padding: 0;
+    }
+
     .section-header {
         margin: 40px 0 25px 0;
         padding-bottom: 15px;
@@ -156,55 +163,7 @@
 <div class="container-fluid">
     <div class="row">
         <!-- Sidebar Navigation -->
-        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
-            <div class="position-sticky pt-3">
-                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
-                    <span>Simulation Modules</span>
-                </h6>
-                <ul class="nav flex-column">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:user_manual' %}">
-                            <i class="fas fa-book me-2"></i>User Manual
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
-                            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
-                            <i class="fas fa-map me-2"></i>Land Use Data
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:renewable_list' %}">
-                            <i class="fas fa-solar-panel me-2"></i>Renewable Energy
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
-                            <i class="fas fa-chart-line me-2"></i>Verbrauch
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="{% url 'simulator:cockpit' %}">
-                            <i class="fas fa-cogs me-2"></i>Cockpit
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
-                            <i class="fas fa-bolt me-2"></i>Annual Electricity
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:bilanz' %}">
-                            <i class="fas fa-balance-scale me-2"></i>Bilanz
-                        </a>
-                    </li>
-                </ul>
-            </div>
-        </nav>
+        {% include 'simulator/partials/sidebar_nav.html' with active_section='cockpit' %}
 
         <!-- Main Content -->
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
@@ -256,75 +215,8 @@
             </div>
             <div class="card mb-4">
                 <div class="card-body">
-                    <div class="chart-container" style="height: 500px;">
+                    <div class="chart-container main-sector-chart" style="height: 84vh; min-height: 780px;">
                         <canvas id="sectorComparisonChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Breakdown Charts -->
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="section-header">
-                        <h3><i class="fas fa-bolt me-2"></i>Strom</h3>
-                    </div>
-                    <div class="card mb-4 text-center">
-                        <div class="card-body">
-                            <div class="chart-container" style="height: 300px;">
-                                <canvas id="stromChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="section-header">
-                        <h3><i class="fas fa-fire me-2"></i>Brennstoffe</h3>
-                    </div>
-                    <div class="card mb-4 text-center">
-                        <div class="card-body">
-                            <div class="chart-container" style="height: 300px;">
-                                <canvas id="brennstoffeChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="section-header">
-                        <h3><i class="fas fa-temperature-high me-2"></i>Wärme</h3>
-                    </div>
-                    <div class="card mb-4 text-center">
-                        <div class="card-body">
-                            <div class="chart-container" style="height: 300px;">
-                                <canvas id="waermeChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Fuel Details -->
-            <div class="section-header">
-                <h3><i class="fas fa-gas-pump me-2"></i>Brennstoff-Aufteilung</h3>
-            </div>
-            <div class="row mb-5">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title text-center">Gasanteil</h5>
-                            <div class="chart-container" style="height: 250px;">
-                                <canvas id="gasChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title text-center">Flüssig & Fest</h5>
-                            <div class="chart-container" style="height: 250px;">
-                                <canvas id="liquidSolidChart"></canvas>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -383,15 +275,40 @@
     const colors = {
         demand: '#3F51B5',
         renewable: '#10B981',
+        deltaPos: '#16A34A',
+        deltaNeg: '#DC2626',
         fossil: '#4B5563',
         gaseous: '#F59E0B',
         liquid: '#EF4444',
         solid: '#8B4513'
     };
 
+    const sectorLabels = ['KLIK', 'Gebäudewärme', 'Prozesswärme', 'Mobile Anwendungen'];
+
+    function formatMwh(val) {
+        return Number(val || 0).toLocaleString('de-DE', { maximumFractionDigits: 0 });
+    }
+
+    function formatPercent(val) {
+        return Number(val || 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+    }
+
+    function getSectorSeries(d) {
+        const demand = [d.gesamt_klik, d.gesamt_gebaeudewaerme, d.gesamt_prozesswaerme, d.gesamt_mobile];
+        const renewable = [d.renewable_klik, d.renewable_gebaeudewaerme, d.renewable_prozesswaerme, d.renewable_mobile];
+        const delta = renewable.map((r, i) => r - demand[i]);
+        return { demand, renewable, delta };
+    }
+
+    const DELTA_THRESHOLD = 100;
+
     const chartConfig = {
         responsive: true,
         maintainAspectRatio: false,
+        animation: {
+            duration: 450,
+            easing: 'easeOutQuart'
+        },
         plugins: {
             legend: {
                 display: true,
@@ -404,21 +321,98 @@
                 callbacks: {
                     label: function (context) {
                         const val = context.parsed.y || context.parsed.x || 0;
-                        return context.dataset.label + ': ' + val.toLocaleString('de-DE') + ' MWh/a';
+                        return context.dataset.label + ': ' + formatMwh(val) + ' MWh/a';
                     }
                 }
             }
-        },
-        scales: {
-            y: {
-                beginAtZero: true,
-                grid: { color: 'rgba(0,0,0,0.05)' },
-                ticks: {
-                    font: { size: 11 },
-                    callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v
+        }
+    };
+
+    const deltaBadgePlugin = {
+        id: 'deltaBadgePlugin',
+        afterDatasetsDraw(chart, args, options) {
+            const series = options && options.series;
+            if (!series) return;
+
+            const threshold = options.threshold || DELTA_THRESHOLD;
+            const metaDemand = chart.getDatasetMeta(0).data || [];
+            const metaRenewable = chart.getDatasetMeta(1).data || [];
+            if (!metaDemand.length || !metaRenewable.length) return;
+            const isHorizontal = chart.options.indexAxis === 'y';
+
+            const ctx = chart.ctx;
+            const area = chart.chartArea;
+
+            const drawRoundRect = (x, y, w, h, r) => {
+                const radius = Math.min(r, h / 2, w / 2);
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.arcTo(x + w, y, x + w, y + h, radius);
+                ctx.arcTo(x + w, y + h, x, y + h, radius);
+                ctx.arcTo(x, y + h, x, y, radius);
+                ctx.arcTo(x, y, x + w, y, radius);
+                ctx.closePath();
+            };
+
+            ctx.save();
+            ctx.font = '600 11px "Segoe UI", sans-serif';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 0; i < series.delta.length; i++) {
+                const delta = series.delta[i];
+                const demandBar = metaDemand[i];
+                const renewableBar = metaRenewable[i];
+                if (!demandBar || !renewableBar) continue;
+
+                let label = '';
+                let bg = '#7dd3fc';
+                let fg = '#0f172a';
+
+                if (Math.abs(delta) < threshold) {
+                    label = 'Perfekt';
+                } else if (delta > 0) {
+                    label = 'Δ +' + formatMwh(Math.abs(delta));
+                    bg = colors.deltaPos;
+                    fg = '#ffffff';
+                } else {
+                    label = 'Δ -' + formatMwh(Math.abs(delta));
+                    bg = colors.deltaNeg;
+                    fg = '#ffffff';
                 }
-            },
-            x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+
+                const labelW = ctx.measureText(label).width;
+                const padX = 8;
+                const boxW = labelW + padX * 2;
+                const boxH = 22;
+                let x = 0;
+                let y = 0;
+
+                if (isHorizontal) {
+                    const yCenter = (demandBar.y + renewableBar.y) / 2;
+                    const barEnd = Math.max(demandBar.x, renewableBar.x);
+                    x = barEnd + 10;
+                    y = yCenter - boxH / 2;
+                } else {
+                    const xCenter = (demandBar.x + renewableBar.x) / 2;
+                    const barTop = Math.min(demandBar.y, renewableBar.y);
+                    x = xCenter - boxW / 2;
+                    y = barTop - boxH - 8;
+                }
+
+                if (x + boxW > area.right - 2) x = area.right - boxW - 2;
+                if (x < area.left + 2) x = area.left + 2;
+                if (y < area.top + 2) y = area.top + 2;
+                if (y + boxH > area.bottom - 2) y = area.bottom - boxH - 2;
+
+                drawRoundRect(x, y, boxW, boxH, 8);
+                ctx.fillStyle = bg;
+                ctx.fill();
+
+                ctx.fillStyle = fg;
+                ctx.fillText(label, x + padX, y + boxH / 2);
+            }
+
+            ctx.restore();
         }
     };
 
@@ -426,68 +420,74 @@
         charts.sectorComparison = new Chart(document.getElementById('sectorComparisonChart'), {
             type: 'bar',
             data: {
-                labels: ['KLIK', 'Gebäudewärme', 'Prozesswärme', 'Mobile Anwendungen'],
+                labels: sectorLabels,
                 datasets: [
-                    { label: 'Verbrauch (Demand)', data: [], backgroundColor: colors.demand, borderRadius: 8, barPercentage: 0.8, categoryPercentage: 0.8 },
-                    { label: 'Erneuerbare (Renewable)', data: [], backgroundColor: colors.renewable, borderRadius: 8, barPercentage: 0.8, categoryPercentage: 0.8 }
+                    { label: 'Verbrauch (Demand)', data: [], backgroundColor: colors.demand, borderRadius: 8, barPercentage: 0.92, categoryPercentage: 0.74, maxBarThickness: 86 },
+                    { label: 'Erneuerbare (Renewable)', data: [], backgroundColor: colors.renewable, borderRadius: 8, barPercentage: 0.92, categoryPercentage: 0.74, maxBarThickness: 86 }
                 ]
             },
+            plugins: [deltaBadgePlugin],
             options: {
-                indexAxis: 'y',
+                indexAxis: 'x',
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
                     legend: chartConfig.plugins.legend,
+                    deltaBadgePlugin: { series: null, threshold: DELTA_THRESHOLD },
                     tooltip: {
                         ...chartConfig.plugins.tooltip,
-                        callbacks: { label: c => c.dataset.label + ': ' + c.parsed.x.toLocaleString('de-DE') + ' MWh/a' }
+                        callbacks: {
+                            label: c => {
+                                const val = c.parsed.y ?? c.parsed.x ?? 0;
+                                return c.dataset.label + ': ' + formatMwh(val) + ' MWh/a';
+                            },
+                            footer: (items) => {
+                                if (!items || !items.length) return '';
+                                const idx = items[0].dataIndex;
+                                const d = bilanzData[currentView];
+                                const s = getSectorSeries(d);
+                                const deltaVal = s.delta[idx];
+                                if (Math.abs(deltaVal) < DELTA_THRESHOLD) return 'Perfekt';
+                                const pct = s.demand[idx] !== 0 ? (deltaVal / s.demand[idx]) * 100 : 0;
+                                const sign = deltaVal >= 0 ? '+' : '-';
+                                return 'Delta: ' + sign + formatMwh(Math.abs(deltaVal)) + ' MWh/a (' + sign + formatPercent(Math.abs(pct)) + ')';
+                            }
+                        }
                     }
                 },
                 scales: {
                     x: {
-                        beginAtZero: true,
-                        grid: { color: 'rgba(0,0,0,0.05)' },
+                        grid: { display: false },
                         ticks: {
-                            font: { size: 11 },
-                            stepSize: 25000,
+                            font: { size: 14, weight: '700' }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        ticks: {
+                            font: { size: 12 },
                             callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v
                         },
                         title: { display: true, text: 'MWh/a', font: { weight: 'bold' } }
-                    },
-                    y: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
+                    }
                 }
             }
         });
 
-        const barChart = (id, labelRenew, labelFossil) => new Chart(document.getElementById(id), {
-            type: 'bar',
-            data: {
-                labels: [id.charAt(0).toUpperCase() + id.slice(1)],
-                datasets: [
-                    { label: labelRenew, data: [], backgroundColor: colors.renewable, borderRadius: 8 },
-                    { label: labelFossil, data: [], backgroundColor: colors.fossil, borderRadius: 8 }
-                ]
-            },
-            options: chartConfig
-        });
-
-        charts.strom = barChart('stromChart', 'Erneuerbar', 'Fossil');
-        charts.brennstoffe = barChart('brennstoffeChart', 'Erneuerbar', 'Fossil');
-        charts.waerme = barChart('waermeChart', 'Erneuerbar', 'Fossil');
-
-        charts.gas = new Chart(document.getElementById('gasChart'), {
-            type: 'doughnut',
-            data: { labels: ['Gasförmig', 'Andere'], datasets: [{ data: [], backgroundColor: [colors.gaseous, '#E0E0E0'], borderWidth: 0 }] },
-            options: { plugins: { legend: { position: 'bottom' } } }
-        });
-
-        charts.liquidSolid = new Chart(document.getElementById('liquidSolidChart'), {
-            type: 'doughnut',
-            data: { labels: ['Flüssig', 'Fest'], datasets: [{ data: [], backgroundColor: [colors.liquid, colors.solid], borderWidth: 0 }] },
-            options: { plugins: { legend: { position: 'bottom' } } }
-        });
-
         updateCharts();
+    }
+
+    function updateSectorChart(d) {
+        const s = getSectorSeries(d);
+        const chart = charts.sectorComparison;
+        chart.data.labels = sectorLabels;
+        chart.data.datasets[0].data = s.demand;
+        chart.data.datasets[1].data = s.renewable;
+        const maxVal = Math.max(...s.demand, ...s.renewable, 1);
+        chart.options.scales.y.max = maxVal * 1.16;
+        chart.options.plugins.deltaBadgePlugin.series = s;
+        chart.update();
     }
 
     function updateCharts() {
@@ -496,29 +496,7 @@
         const ren = d.strom_renewable + d.brennstoffe_renewable + d.waerme_renewable;
         document.getElementById('renewablePercent').textContent = d.gesamt_total > 0 ? ((ren / d.gesamt_total) * 100).toFixed(1) + '%' : '0%';
         document.getElementById('renewableAmount').textContent = ren.toLocaleString('de-DE') + ' MWh/a erneuerbar';
-
-        charts.sectorComparison.data.datasets[0].data = [d.gesamt_klik, d.gesamt_gebaeudewaerme, d.gesamt_prozesswaerme, d.gesamt_mobile];
-        charts.sectorComparison.data.datasets[1].data = [d.renewable_klik, d.renewable_gebaeudewaerme, d.renewable_prozesswaerme, d.renewable_mobile];
-        charts.sectorComparison.update();
-
-        charts.strom.data.datasets[0].data = [d.strom_renewable];
-        charts.strom.data.datasets[1].data = [d.strom_fossil];
-        charts.strom.update();
-
-        charts.brennstoffe.data.datasets[0].data = [d.brennstoffe_renewable];
-        charts.brennstoffe.data.datasets[1].data = [d.brennstoffe_fossil];
-        charts.brennstoffe.update();
-
-        charts.waerme.data.datasets[0].data = [d.waerme_renewable];
-        charts.waerme.data.datasets[1].data = [d.waerme_fossil];
-        charts.waerme.update();
-
-        const fuelTotal = d.brennstoffe_gaseous + d.brennstoffe_liquid + d.brennstoffe_solid;
-        charts.gas.data.datasets[0].data = [d.brennstoffe_gaseous, fuelTotal - d.brennstoffe_gaseous];
-        charts.gas.update();
-
-        charts.liquidSolid.data.datasets[0].data = [d.brennstoffe_liquid, d.brennstoffe_solid];
-        charts.liquidSolid.update();
+        updateSectorChart(d);
     }
 
     function switchView(v) {

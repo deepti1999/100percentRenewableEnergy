@@ -8,65 +8,7 @@
 <div class="container-fluid">
     <div class="row">
         <!-- Sidebar Navigation -->
-        <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
-            <div class="position-sticky pt-3">
-                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
-                    <span>Simulation Modules</span>
-                </h6>
-                <ul class="nav flex-column">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:main_simulation' %}">
-                            <i class="fas fa-tachometer-alt me-2"></i>
-                            Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:landuse_list' %}">
-                            <i class="fas fa-map me-2"></i>
-                            Land Use Data
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="{% url 'simulator:renewable_list' %}">
-                            <i class="fas fa-solar-panel me-2"></i>
-                            Renewable Energy
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:verbrauch' %}">
-                            <i class="fas fa-chart-line me-2"></i>
-                            Verbrauch
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:cockpit' %}">
-                            <i class="fas fa-cogs me-2"></i>
-                            Cockpit
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:annual_electricity' %}">
-                            <i class="fas fa-bolt me-2"></i>
-                            Annual Electricity
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:bilanz' %}">
-                            <i class="fas fa-balance-scale me-2"></i>
-                            Bilanz
-                        </a>
-                    </li>
-                    {% comment %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'simulator:usecase_diagram' %}">
-                            <i class="fas fa-project-diagram me-2"></i>
-                            Use Case Diagram
-                        </a>
-                    </li>
-                    {% endcomment %}
-                </ul>
-            </div>
-        </nav>
+        {% include 'simulator/partials/sidebar_nav.html' with active_section='renewable' %}
 
         <!-- Main Content -->
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
@@ -75,21 +17,9 @@
                 <h1 class="h2">Renewable Energy Data Overview</h1>
                 <div class="btn-toolbar mb-2 mb-md-0">
                     <div class="btn-group me-2">
-                        <button id="run-unified-recalc-btn" type="button" class="btn btn-sm btn-success"
-                            onclick="runUnifiedRecalculation()">
-                            <i class="fas fa-sync-alt me-1"></i>🔄 Recalculate + Balance
-                        </button>
-                    </div>
-                    <div class="btn-group me-2">
                         <button id="run-recalc-btn" type="button" class="btn btn-sm btn-outline-primary"
                             onclick="runFullRecalcRenewables()">
-                            <i class="fas fa-leaf me-1"></i>Renewables Only
-                        </button>
-                    </div>
-                    <div class="btn-group me-2">
-                        <button id="run-ws-recalc-btn" type="button" class="btn btn-sm btn-outline-success"
-                            onclick="runWSRecalculation()">
-                            <i class="fas fa-database me-1"></i>WS Data Only
+                            <i class="fas fa-leaf me-1"></i>Recalculate Renewables
                         </button>
                     </div>
                 </div>
@@ -460,69 +390,6 @@
         return inputToken ? inputToken.value : '';
     }
 
-    async function runUnifiedRecalculation() {
-        const btn = document.getElementById('run-unified-recalc-btn');
-        if (!btn) return;
-        const original = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalc + Balance...';
-
-        try {
-            // Call the UNIFIED recalculation API with auto-balance
-            const response = await fetch("{% url 'simulator:unified_recalc' %}", {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': getCsrfToken(),
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    balance_after: true,      // Auto-balance after recalc
-                    ws_tolerance: 10.0,       // WS balance tolerance (GWh)
-                    energy_tolerance: 1.0,    // Energy balance tolerance (GWh)
-                    max_balance_cycles: 2     // Max iterations (reduced for speed)
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('Unified Recalculation completed:', data);
-
-            // Build success message
-            let msg = `✅ Unified Recalculation Complete!\n\n`;
-            msg += `Input Renewables: ${data.input_renewables}\n`;
-            msg += `WS Entries: ${data.ws_updated}\n`;
-            msg += `Fixed Renewables (9.3.1/9.3.4) applied\n\n`;
-
-            if (data.is_balanced) {
-                msg += `✅ BALANCED!\n`;
-                if (data.balance) {
-                    msg += `   Final Gap: ${data.balance.final_gap?.toFixed(2) || 0} GWh\n`;
-                    msg += `   Iterations: ${data.balance.iterations || 0}\n`;
-                }
-            } else {
-                msg += `⚠️ Balance incomplete\n`;
-                if (data.balance) {
-                    msg += `   Final Gap: ${data.balance.final_gap?.toFixed(2) || 'N/A'} GWh\n`;
-                    msg += `   Message: ${data.balance.message || ''}\n`;
-                }
-            }
-
-            msg += `\nDuration: ${data.duration_ms}ms`;
-            alert(msg);
-
-            // Reload page to show updated values
-            window.location.reload();
-        } catch (err) {
-            console.error('Unified Recalc failed', err);
-            alert('Unified Recalculation failed: ' + err.message + '. Please try again.');
-            btn.disabled = false;
-            btn.innerHTML = original;
-        }
-    }
-
     async function runFullRecalcRenewables() {
         const btn = document.getElementById('run-recalc-btn');
         if (!btn) return;
@@ -531,8 +398,8 @@
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalculating...';
 
         try {
-            // Call the full recalculation API to recalculate all values with fresh data
-            const response = await fetch("{% url 'simulator:run_full_recalc' %}", {
+            // Recalculate renewable values only (no WS/Verbrauch recalculation)
+            const response = await fetch("{% url 'simulator:recalc_renewables' %}", {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': getCsrfToken(),
@@ -557,44 +424,6 @@
         } catch (err) {
             console.error('Recalc failed', err);
             alert('Recalculation failed: ' + err.message + '. Please try again.');
-            btn.disabled = false;
-            btn.innerHTML = original;
-        }
-    }
-
-    async function runWSRecalculation() {
-        const btn = document.getElementById('run-ws-recalc-btn');
-        if (!btn) return;
-        const original = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Recalculating WS...';
-
-        try {
-            // Call the WS formula recalculation API
-            const response = await fetch("{% url 'simulator:recalc_ws_formulas' %}", {
-                method: 'POST',
-                headers: {
-                    'X-CSRFToken': getCsrfToken(),
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({})
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('WS Recalculation completed:', data);
-
-            // Show success message
-            alert(data.message || 'WS Data recalculation complete!');
-
-            // Reload page to show updated values
-            window.location.reload();
-        } catch (err) {
-            console.error('WS Recalc failed', err);
-            alert('WS Recalculation failed: ' + err.message + '. Please try again.');
             btn.disabled = false;
             btn.innerHTML = original;
         }

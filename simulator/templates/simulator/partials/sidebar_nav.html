@@ -1,0 +1,54 @@
+<nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+    <div class="position-sticky pt-3">
+        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+            <span>Simulationsmodule</span>
+        </h6>
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'dashboard' %}active{% endif %}" href="{% url 'simulator:main_simulation' %}">
+                    <i class="fas fa-tachometer-alt me-2"></i>Übersicht
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'landuse' %}active{% endif %}" href="{% url 'simulator:landuse_list' %}">
+                    <i class="fas fa-map me-2"></i>Flächennutzung
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'renewable' %}active{% endif %}" href="{% url 'simulator:renewable_list' %}">
+                    <i class="fas fa-solar-panel me-2"></i>Erneuerbare Energien
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'verbrauch' %}active{% endif %}" href="{% url 'simulator:verbrauch' %}">
+                    <i class="fas fa-chart-line me-2"></i>Verbrauch (KLIK + Gebäudewärme)
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'ws' %}active{% endif %}" href="{% url 'simulator:ws' %}">
+                    <i class="fas fa-calendar-alt me-2"></i>WS (365 Tage)
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'cockpit' %}active{% endif %}" href="{% url 'simulator:cockpit' %}">
+                    <i class="fas fa-cogs me-2"></i>Cockpit
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'annual_electricity' %}active{% endif %}" href="{% url 'simulator:annual_electricity' %}">
+                    <i class="fas fa-bolt me-2"></i>Jahresstrom
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'bilanz' %}active{% endif %}" href="{% url 'simulator:bilanz' %}">
+                    <i class="fas fa-balance-scale me-2"></i>Bilanz
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if active_section == 'user_manual' %}active{% endif %}" href="{% url 'simulator:user_manual' %}">
+                    <i class="fas fa-book me-2"></i>Benutzerhandbuch
+                </a>
+            </li>
+        </ul>
+    </div>
+</nav>
