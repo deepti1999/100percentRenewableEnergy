@@ -1,0 +1,21 @@
+Code,Name,Status_ha,Target_ha,Parent_Code,Quelle
+0,Bodenfläche gesamt,35759529,35759529,,D.1.64
+1,Siedlung (Gebäude- & Freifläche),3380079,3645799,0,D.1.69
+1.1,Solare Dachflächen,34243,199398,1,D.1.120
+2,Landwirtschaftsfläche (LF),18020717,17754997,0,D.1.75
+2.1,Solare Freiflächen,19628,692738,2,D.1.129
+2.2,Ackerland,11681400,10826000,2,D.1.80
+2.2.1,Getreide-Anbaufl. (Stroh),6076200,5631255,2.2,D.1.85
+2.2.2,Energiepfl. (Biogas),1410000,1307000,2.2,D.1.365
+2.2.3,Energiepfl. (Pflanzenöl),665000,303000,2.2,D.1.445
+2.2.4,Energiepfl. (Ethanol),216200,0,2.2,D.1.494
+2.2.5,Energiepfl. (Kurzumtr.),11200,11200,2.2,D.1.266
+2.2.6,(ohne energet. Relevanz),3302800,3573545,2.2,[14]…[19]
+2.3,Dauergrünland,4704200,4371150,2,D.1.90
+2.4,(sonstige Nutzung),1615489,1865109,2,[12][22]
+3,Waldfläche,11538455,11538455,0,D.1.96
+3.1,Forstfl. (u.a.Energieholz),9866633,9373000,3,D.1.109
+3.2,(ohne forstwirtsch.Nutzung),1671822,2165455,3,[27][28]
+4,(sonstige Flächen),2820278,2820278,0,[8][9]
+5,Windenergie Flächenpotenzial,2089000,1671200,0,D.1.173
+5.1,Windparkfläche,172556,715289,5,D.1.188

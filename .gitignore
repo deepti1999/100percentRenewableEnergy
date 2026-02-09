@@ -1,0 +1,44 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Django
+*.log
+
+# SQLite backup files (keep only main db.sqlite3)
+db_backup_*.sqlite3
+db_baseline.sqlite3
+db.sqlite3.backup_*
+db.sqlite3.fix*
+db.sqlite3.pre_*
+
+# Cookies
+cookies.txt
+
+# CSV output files (large, regeneratable)
+365_days_*.csv
+
+# Static files collected
+staticfiles/
+
+# Environment files
+.env
+.env.django

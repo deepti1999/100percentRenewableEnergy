@@ -1,3 +1,7 @@
 django==4.2.24
 pandas
 numpy
+gunicorn
+whitenoise
+dj-database-url
+psycopg2-binary

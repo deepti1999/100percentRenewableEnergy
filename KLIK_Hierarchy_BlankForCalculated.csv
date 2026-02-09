@@ -1,0 +1,20 @@
+Code,Category,Unit,Status,Ziel
+1,"Kraft, Licht, Information, Kommunikation, Kälte (KLIK)",GWh/a,329214,329214
+1.1,"Bedarfsniveau (statisch), 100% Strom",GWh/a,329214,329214
+1.1.1,davon Haushalte,%,18.6,18.6
+1.1.1.1,Endenergie Haushalte,GWh/a,61237,61237
+1.1.1.2,Zieleinfluss Endanwendungs-Effizienz,%,100,95
+1.1.1.3,Endenergie nach Effizienz,GWh/a,,
+1.2,davon Handel/Dienstleistungen,%,34.7,34.7
+1.2.1,Endenergie Handel/Dienstl.,GWh/a,114098,114098
+1.2.2,Zieleinfluss Handels-/Dienstl.-Vol./Pers.,%,100,100
+1.2.3,Nach Vol./Pers. Anpassung,GWh/a,,
+1.2.4,Zieleinfluss Prozess-Effizienz,%,100,95
+1.2.5,Endenergie nach Prozess-Effizienz,GWh/a,,
+1.3,davon Industrie + Gewerbeanteil GHD,%,46.7,46.7
+1.3.1,Endenergie Industrie,GWh/a,153880,153880
+1.3.2,Zieleinfluss Materialdurchsatz/Pers.,%,100,100
+1.3.3,Nach Materialdurchsatz Anpassung,GWh/a,,
+1.3.4,Zieleinfluss Prozess-Effizienz,%,100,95
+1.3.5,Endenergie nach Prozess-Effizienz,GWh/a,,
+1.4,Endverbrauch Strom für KLIK gesamt,GWh/a,329214,
