@@ -338,6 +338,25 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const runGoalSeekBtn = document.getElementById('runGoalSeekBtn');
+    const applyBalanceBtn = document.getElementById('applyBalanceBtn');
+    const applyWindBalanceBtn = document.getElementById('applyWindBalanceBtn');
+    let wsBalanceInFlight = false;
+
+    function setRunControlsDisabled(disabled) {
+        [runGoalSeekBtn, applyBalanceBtn, applyWindBalanceBtn].forEach((el) => {
+            if (!el) {
+                return;
+            }
+            if (disabled) {
+                el.dataset.prevDisabled = el.disabled ? '1' : '0';
+                el.disabled = true;
+            } else {
+                el.disabled = el.dataset.prevDisabled === '1';
+            }
+        });
+    }
+
     function roundMaybe(value, digits) {
         if (value === null || value === undefined || value === '') {
             return null;
@@ -395,12 +414,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Goal Seek Button
-    document.getElementById('runGoalSeekBtn').addEventListener('click', function() {
+    runGoalSeekBtn.addEventListener('click', function() {
+        if (wsBalanceInFlight) {
+            alert('Ein Balance-Lauf ist bereits aktiv. Bitte warten, bis er abgeschlossen ist.');
+            return;
+        }
         const btn = this;
-        btn.disabled = true;
+        setRunControlsDisabled(true);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Berechnung läuft...';
         
-        fetch('{% url "simulator:ws_api_goal_seek" %}')
+        fetchWithTimeout('{% url "simulator:ws_api_goal_seek" %}', {}, 45000)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -418,7 +441,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Fehler beim Goal Seek: ' + error);
             })
             .finally(() => {
-                btn.disabled = false;
+                setRunControlsDisabled(false);
                 btn.innerHTML = '<i class="fas fa-bullseye me-1"></i>Goal Seek ausführen';
             });
     });
@@ -520,16 +543,23 @@ document.addEventListener('DOMContentLoaded', function() {
         window.location.reload();
     }
 
-    document.getElementById('applyBalanceBtn').addEventListener('click', function() {
+    applyBalanceBtn.addEventListener('click', function() {
+        if (wsBalanceInFlight) {
+            alert('Ein Balance-Lauf ist bereits aktiv. Bitte warten, bis er abgeschlossen ist.');
+            return;
+        }
         const btn = this;
         const defaultHtml = '<i class="fas fa-balance-scale me-1"></i>Balance by Solar';
         if (!confirm('Möchten Sie LU_2.1 auf den balancierten Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
             return;
         }
         
-        btn.disabled = true;
+        wsBalanceInFlight = true;
+        setRunControlsDisabled(true);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
         let uiFailsafe = setTimeout(() => {
+            wsBalanceInFlight = false;
+            setRunControlsDisabled(false);
             btn.disabled = false;
             btn.innerHTML = defaultHtml;
             uiFailsafe = null;
@@ -560,22 +590,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (uiFailsafe) {
                     clearTimeout(uiFailsafe);
                 }
+                wsBalanceInFlight = false;
+                setRunControlsDisabled(false);
                 btn.disabled = false;
                 btn.innerHTML = defaultHtml;
             });
     });
 
     // Apply Wind Balance Button
-    document.getElementById('applyWindBalanceBtn').addEventListener('click', function() {
+    applyWindBalanceBtn.addEventListener('click', function() {
+        if (wsBalanceInFlight) {
+            alert('Ein Balance-Lauf ist bereits aktiv. Bitte warten, bis er abgeschlossen ist.');
+            return;
+        }
         const btn = this;
         const defaultHtml = '<i class="fas fa-wind me-1"></i>Balance by Wind';
         if (!confirm('Möchten Sie LU_6 auf den balancierten Wind-Wert setzen?\n\nDies wird die Flächennutzung automatisch anpassen, sodass Tag 365 = Tag 1 (Speicher balanciert).')) {
             return;
         }
 
-        btn.disabled = true;
+        wsBalanceInFlight = true;
+        setRunControlsDisabled(true);
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starte Full Balance...';
         let uiFailsafe = setTimeout(() => {
+            wsBalanceInFlight = false;
+            setRunControlsDisabled(false);
             btn.disabled = false;
             btn.innerHTML = defaultHtml;
             uiFailsafe = null;
@@ -606,6 +645,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (uiFailsafe) {
                     clearTimeout(uiFailsafe);
                 }
+                wsBalanceInFlight = false;
+                setRunControlsDisabled(false);
                 btn.disabled = false;
                 btn.innerHTML = defaultHtml;
             });

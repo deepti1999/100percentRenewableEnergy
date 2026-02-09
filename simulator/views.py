@@ -3297,6 +3297,27 @@ def _coerce_choice(value, allowed, default):
     return default
 
 
+def _compute_ws_balance_runtime_limit_seconds(summary):
+    """Compute runtime limit from configured/base budget and expected cycle count."""
+    configured_cycles = _coerce_int(
+        (summary or {}).get('max_convergence_cycles'),
+        default=1,
+        minimum=1,
+        maximum=24,
+    )
+    base_runtime = _coerce_float(
+        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "240"),
+        default=240.0,
+        minimum=60.0,
+    )
+    per_cycle_runtime = _coerce_float(
+        os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "40"),
+        default=40.0,
+        minimum=5.0,
+    )
+    return max(base_runtime, configured_cycles * per_cycle_runtime)
+
+
 def _run_ws_balance_job(run_id, mode, enable_heat_balance, max_convergence_cycles, heat_profile):
     """
     Background runner for full WS balancing.
@@ -3427,6 +3448,40 @@ def ws_api_start_balance_job(request):
         # Prevent under-constrained runs like cycles=2 that frequently fail on Heroku.
         max_convergence_cycles = max(3, max_convergence_cycles)
 
+    # Guard against concurrent WS balance jobs mutating the same model graph.
+    # Concurrent runs can fight each other and produce non-convergence/timeouts.
+    running_job = (
+        CalculationRun.objects
+        .filter(summary__type='ws_balance', summary__status='running')
+        .order_by('-created_at')
+        .first()
+    )
+    if running_job:
+        running_summary = running_job.summary or {}
+        age_seconds = max(0.0, (timezone.now() - running_job.created_at).total_seconds())
+        max_runtime = _compute_ws_balance_runtime_limit_seconds(running_summary)
+        if age_seconds <= max_runtime:
+            return JsonResponse({
+                'success': False,
+                'status': 'running',
+                'run_id': running_job.id,
+                'error': (
+                    f'Another WS balance is still running (run {running_job.id}, '
+                    f'{int(age_seconds)}s). Please wait for it to finish.'
+                ),
+            }, status=409)
+
+        # Stale "running" row from a crashed/aborted worker: mark as error and continue.
+        running_summary['type'] = 'ws_balance'
+        running_summary['status'] = 'error'
+        running_summary['error'] = (
+            f'Previous balance marked stale after {int(age_seconds)}s '
+            f'(limit {int(max_runtime)}s).'
+        )
+        running_job.duration_ms = int(age_seconds * 1000)
+        running_job.summary = running_summary
+        running_job.save(update_fields=['duration_ms', 'summary'])
+
     run = CalculationRun.objects.create(
         duration_ms=0,
         triggered_by=request.user.username,
@@ -3473,23 +3528,7 @@ def ws_api_balance_job_status(request, run_id):
 
     status = summary.get('status', 'running')
     if status == 'running':
-        configured_cycles = _coerce_int(
-            summary.get('max_convergence_cycles'),
-            default=1,
-            minimum=1,
-            maximum=24,
-        )
-        base_runtime = _coerce_float(
-            os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "150"),
-            default=150.0,
-            minimum=60.0,
-        )
-        per_cycle_runtime = _coerce_float(
-            os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "40"),
-            default=40.0,
-            minimum=5.0,
-        )
-        max_runtime = max(base_runtime, configured_cycles * per_cycle_runtime)
+        max_runtime = _compute_ws_balance_runtime_limit_seconds(summary)
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if age_seconds > max_runtime:
             summary = {
