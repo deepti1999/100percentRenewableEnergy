@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pypsa-implementation
+    env: docker
+    plan: free
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "localhost,127.0.0.1"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true

@@ -1,0 +1,23 @@
+.git
+.github
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local archives/backups not needed in deploy image
+archive/
+db_backup_*.sqlite3
+db.sqlite3.backup*
+
+# Local ad-hoc screenshots/files (keep app static assets under simulator/static)
+Bilianz1.png
+Bilianz2.png
+cockpit1.png
+cockpit2.png
+ws-365tage.png
+ renewable_step5.png .png
+
+# Local test artifacts
+*.csv
