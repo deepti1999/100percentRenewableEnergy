@@ -367,7 +367,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function formatApiError(error) {
         const raw = String(error && error.message ? error.message : error || '');
-        if (raw.includes('AbortError')) {
+        if (raw.includes('AbortError') || raw.toLowerCase().includes('aborted')) {
             return 'Die Anfrage hat zu lange gedauert (Timeout). Bitte erneut versuchen.';
         }
         if (raw.includes('CSRF verification failed') || raw.includes('Origin checking failed')) {

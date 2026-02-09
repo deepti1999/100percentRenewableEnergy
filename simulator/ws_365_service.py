@@ -6,6 +6,7 @@ Provides real-time recalculation when inputs change.
 """
 
 import math
+import os
 
 from .models import VerbrauchData, RenewableData
 from .ws_models import WSData
@@ -17,6 +18,8 @@ GRID_LOSS_RATE = 0.092
 ELECTROLYSIS_EFFICIENCY = 0.65
 RUECKVERSTROEMUNG_EFFICIENCY = 0.585
 FIXED_82_TARGET = 12000.0
+WS_MAX_CONVERGENCE_CYCLES = max(1, int(os.environ.get('WS_MAX_CONVERGENCE_CYCLES', '1')))
+WS_HEAT_SETTLE_ROUNDS = max(1, int(os.environ.get('WS_HEAT_SETTLE_ROUNDS', '1')))
 
 
 def _validate_required_landuse(required_landuse: float, parent_target_ha: Optional[float], code: str) -> float:
@@ -610,7 +613,7 @@ def _balance_heat_sectors_after_ws():
         r82_fixed.save(skip_cascade=True, update_fields=['target_value', 'is_fixed'])
     new_82_target = float(r82_fixed.target_value or 0)
 
-    def settle_totals(trigger_prefix: str, max_rounds: int = 3, tolerance: float = 1.0):
+    def settle_totals(trigger_prefix: str, max_rounds: int = WS_HEAT_SETTLE_ROUNDS, tolerance: float = 1.0):
         """
         Recalculate until heat-sector gaps stabilize.
         This avoids optimizing 2.8 against transient intermediate states.
@@ -684,61 +687,34 @@ def _balance_heat_sectors_after_ws():
 
     gw_gap_tolerance = 100.0
 
+    # Fast bounded search:
+    # Evaluate at most two additional candidates (probe + linear estimate),
+    # then pick best; avoids expensive nested loops under hosted low CPU.
     if abs(old_gap) > gw_gap_tolerance:
-        x_curr = old_28
-        g_curr = old_gap
-        probe_step = 0.5
+        direction = -1.0 if old_gap > 0 else 1.0
+        x_probe = _clamp_28(old_28 + (direction * 0.5))
+        if abs(x_probe - old_28) > 1e-9:
+            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=WS_HEAT_SETTLE_ROUNDS)
 
-        for _ in range(6):
-            if abs(g_curr) <= gw_gap_tolerance:
-                break
+            x_guess = None
+            g_guess = None
+            if abs(x_probe - old_28) > 1e-9:
+                slope = (g_probe - old_gap) / (x_probe - old_28)
+                if abs(slope) > 1e-9:
+                    x_guess_raw = _clamp_28(old_28 - (old_gap / slope))
+                    # Limit jump to avoid unstable overshoot.
+                    x_guess = max(old_28 - 3.0, min(old_28 + 3.0, x_guess_raw))
+                    if abs(x_guess - old_28) > 1e-9 and abs(x_guess - x_probe) > 1e-9:
+                        x_guess, g_guess = _evaluate_28_gap(x_guess, settle_rounds=WS_HEAT_SETTLE_ROUNDS)
 
-            direction = -1.0 if g_curr > 0 else 1.0
-            x_probe = _clamp_28(x_curr + (direction * probe_step))
-            if abs(x_probe - x_curr) < 1e-9:
-                break
-
-            x_probe, g_probe = _evaluate_28_gap(x_probe, settle_rounds=3)
-
-            slope = None
-            if abs(x_probe - x_curr) > 1e-9:
-                slope = (g_probe - g_curr) / (x_probe - x_curr)
-
-            x_next = None
-            g_next = None
-            if slope is not None and abs(slope) > 1e-9:
-                x_guess = _clamp_28(x_curr - (g_curr / slope))
-                max_jump = max(1.0, probe_step * 4.0)
-                x_guess = max(x_curr - max_jump, min(x_curr + max_jump, x_guess))
-                if abs(x_guess - x_probe) > 1e-9 and abs(x_guess - x_curr) > 1e-9:
-                    x_next, g_next = _evaluate_28_gap(x_guess, settle_rounds=3)
-
-            candidates = [(x_curr, g_curr), (x_probe, g_probe)]
-            if x_next is not None:
-                candidates.append((x_next, g_next))
-
-            target_x, _ = min(candidates, key=lambda item: abs(item[1]))
-            current_state_x = candidates[-1][0]
-
-            if abs(target_x - current_state_x) > 1e-9:
-                target_x, target_gap, _ = apply_28_and_get_gap(target_x, settle_rounds=3)
-                _remember_candidate(target_x, target_gap)
-            else:
-                target_gap = candidates[-1][1]
-
-            improved = abs(target_gap) < abs(g_curr)
-            x_curr, g_curr = target_x, target_gap
-
-            if improved:
-                probe_step = min(2.0, probe_step * 1.3)
-            else:
-                probe_step = max(0.1, probe_step * 0.5)
-                if probe_step <= 0.11:
-                    break
+            candidates = [(old_28, old_gap), (x_probe, g_probe)]
+            if x_guess is not None and g_guess is not None:
+                candidates.append((x_guess, g_guess))
+            best_28, _ = min(candidates, key=lambda item: abs(item[1]))
 
     # Set final best 2.8 and keep that state with full settling.
     v28.refresh_from_db(fields=['ziel', 'user_percent'])
-    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=3)
+    final_28, final_gw_gap, totals_after_28 = apply_28_and_get_gap(best_28, settle_rounds=WS_HEAT_SETTLE_ROUNDS)
 
     # --- Prozesswärme knob: Renewable 5.4.1 (%) driving 5.4.1.1 -> 10.5 ---
     r54 = RenewableData.objects.get(code='5.4')
@@ -772,7 +748,7 @@ def _balance_heat_sectors_after_ws():
         process_adjustment['reason'] = 'Cannot adjust 5.4.1 because 5.4 target is 0'
 
     # Recalculate until stable after both knob updates.
-    after = settle_totals("ws_heat_balance_final")
+    after = settle_totals("ws_heat_balance_final", max_rounds=WS_HEAT_SETTLE_ROUNDS)
 
     return {
         'before': before,
@@ -816,7 +792,7 @@ def apply_balanced_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
     
-    max_convergence_cycles = 3
+    max_convergence_cycles = WS_MAX_CONVERGENCE_CYCLES
     ws_drift_tolerance = 0.1
     heat_gap_tolerance = 100.0
 
@@ -995,7 +971,7 @@ def apply_balanced_wind_landuse():
     from .models import LandUse, RenewableData
     from django.db import transaction
 
-    max_convergence_cycles = 3
+    max_convergence_cycles = WS_MAX_CONVERGENCE_CYCLES
     # Use tighter tolerance so Day1/Day365 also match in UI precision.
     ws_drift_tolerance = 0.005
     heat_gap_tolerance = 100.0
