@@ -5,7 +5,18 @@ from django.db import transaction
 
 from simulator.models import LandUse, RenewableData, VerbrauchData
 from simulator.verbrauch_recalculator import recalc_all_verbrauch
-from simulator.signals import recalculate_ws_data
+
+
+def _sync_ws365_targets() -> int:
+    """
+    Refresh WS365-derived renewable targets using the single WS365 runtime service.
+    Returns number of WS-derived targets updated (9.3.1 + 9.3.4 => max 2).
+    """
+    from simulator.ws_365_service import get_ws_365_data
+
+    # get_ws_365_data() already updates 9.3.1 and 9.3.4 via update_renewable_from_ws365().
+    get_ws_365_data(run_goal_seek=False)
+    return 2
 
 
 def full_chain_recalc(verbose: bool = False) -> Dict[str, Any]:
@@ -14,7 +25,7 @@ def full_chain_recalc(verbose: bool = False) -> Dict[str, Any]:
     
     This function ensures the proper chain is followed:
     1. Recalculate INPUT renewables (9.1.x, 9.2.x, 10.x excluding 9.3.1, 9.3.4)
-    2. Recalculate WS data (uses renewable inputs)
+    2. Refresh WS365-derived targets (uses renewable inputs)
     3. Recalculate ALL renewables again (so 10.1 includes stored 9.3.1, 9.3.4 values)
     
     This breaks the circular dependency and ensures 10.1 is always correct.
@@ -22,8 +33,6 @@ def full_chain_recalc(verbose: bool = False) -> Dict[str, Any]:
     Returns:
         Dict with stats about what was updated
     """
-    from simulator.ws_formula_service import recalculate_all_ws_data
-    
     stats = {
         'input_renewables': 0,
         'ws_updated': 0,
@@ -39,11 +48,10 @@ def full_chain_recalc(verbose: bool = False) -> Dict[str, Any]:
     if verbose:
         print(f"   Step 1: Input renewables updated: {stats['input_renewables']}")
     
-    # STEP 2: Recalculate WS data (uses renewable inputs)
-    ws_stats = recalculate_all_ws_data()
-    stats['ws_updated'] = ws_stats.get('updated', 0)
+    # STEP 2: Refresh WS365-derived targets (uses renewable inputs)
+    stats['ws_updated'] = _sync_ws365_targets()
     if verbose:
-        print(f"   Step 2: WS entries updated: {stats['ws_updated']}")
+        print(f"   Step 2: WS365 targets updated: {stats['ws_updated']}")
     
     # STEP 3: Recalculate ALL renewables (so 10.1 sees stored 9.3.1, 9.3.4)
     stats['final_renewables'] = recalc_all_renewables_full(exclude_ws_dependent=False)
@@ -62,7 +70,7 @@ def full_chain_recalc_for_landuse(landuse_code: str, verbose: bool = False) -> D
     
     When a LandUse value changes, this ensures the full cascade:
     1. LandUse dependents (direct renewable connections)
-    2. WS recalculation
+    2. WS365 target refresh
     3. Final renewable totals (10.1 etc.)
     
     Args:
@@ -72,8 +80,6 @@ def full_chain_recalc_for_landuse(landuse_code: str, verbose: bool = False) -> D
     Returns:
         Dict with stats
     """
-    from simulator.ws_formula_service import recalculate_all_ws_data
-    
     stats = {
         'landuse_dependents': 0,
         'ws_updated': 0,
@@ -96,11 +102,10 @@ def full_chain_recalc_for_landuse(landuse_code: str, verbose: bool = False) -> D
     if verbose:
         print(f"   Step 1: LandUse dependents recalculated")
     
-    # STEP 2: Recalculate WS data
-    ws_stats = recalculate_all_ws_data()
-    stats['ws_updated'] = ws_stats.get('updated', 0)
+    # STEP 2: Refresh WS365-derived targets
+    stats['ws_updated'] = _sync_ws365_targets()
     if verbose:
-        print(f"   Step 2: WS entries updated: {stats['ws_updated']}")
+        print(f"   Step 2: WS365 targets updated: {stats['ws_updated']}")
     
     # STEP 3: Recalculate ALL renewables to update totals (10.1)
     stats['final_renewables'] = recalc_all_renewables_full(exclude_ws_dependent=False)
@@ -399,13 +404,13 @@ def unified_recalc_and_balance(balance_after=True, ws_tolerance=10.0, energy_tol
         energy_gap = energy_result.get("final_gap", 0)
         print(f"   Energy: balanced={energy_balanced}, gap={energy_gap:.2f}")
         
-        # EARLY EXIT: If energy is balanced, check if we're done
+        # EARLY EXIT: If energy is balanced, check if WS365 drift is already within tolerance
         if energy_balanced and abs(energy_gap) <= energy_tolerance:
-            # Quick WS check without full balance
-            from simulator.ws_models import WSData
-            row_366 = WSData.objects.get(tag_im_jahr=366)
-            ws_balance_value = row_366.ladezustand_netto or 0
-            
+            from simulator.ws_365_service import get_ws_365_data
+
+            ws_current = (get_ws_365_data(run_goal_seek=False).get("current", {}) or {})
+            ws_balance_value = float(ws_current.get("storage_drift") or 0.0)
+
             if abs(ws_balance_value) <= ws_tolerance:
                 print(f"   ✅ EARLY EXIT - Both balanced!")
                 stats['balance'] = {
@@ -421,10 +426,15 @@ def unified_recalc_and_balance(balance_after=True, ws_tolerance=10.0, energy_tol
                 return stats
         
         # Balance WS storage - use fewer iterations
-        ws_result = _balance_ws_storage_core(ws_tolerance=ws_tolerance, max_iter=5, num_passes=1)
+        ws_result = _balance_ws_storage_core(
+            ws_tolerance=ws_tolerance,
+            max_iter=5,
+            num_passes=1,
+            driver="solar",
+        )
         ws_balanced = ws_result.get("is_balanced", False)
         ws_balance_value = ws_result.get("final_balance", 0)
-        print(f"   WS: balanced={ws_balanced}, ladezustand_netto={ws_balance_value:.2f}")
+        print(f"   WS: balanced={ws_balanced}, storage_drift={ws_balance_value:.2f}")
         
         # Quick recalc of just totals (faster)
         recalc_all_renewables_full()
@@ -484,7 +494,7 @@ def run_full_recalc() -> Dict[str, Any]:
     Steps:
     - recalc all renewables once
     - recalc all Verbrauch rollups once
-    - recalc WS data once
+    - refresh WS365-derived targets once
     Returns summary with timing and counts.
     """
     start = time.perf_counter()
@@ -532,12 +542,12 @@ def run_full_recalc() -> Dict[str, Any]:
         except Exception:
             updated_from_verbrauch = 0
         try:
-            recalculate_ws_data()
+            _sync_ws365_targets()
         except Exception as e:
             # Log error but allow Renewable/Verbrauch data to commit
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"❌ WS Data Recalculation failed: {e}. Skipping WS part to allow other data to save.")
+            logger.error(f"❌ WS365 sync failed: {e}. Skipping WS part to allow other data to save.")
             
     duration_ms = int((time.perf_counter() - start) * 1000)
     return {

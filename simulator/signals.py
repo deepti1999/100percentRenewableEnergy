@@ -986,18 +986,11 @@ def compute_ws_diagram_reference(use_ws_overrides: bool = True):
         t_value = float(current.get('ausspeich_sum', 0))
         
     except Exception as e:
-        # Fallback to WSData row 366 if WS 365 service fails
-        print(f"WS 365 service failed, falling back to WSData row 366: {e}")
-        try:
-            ws_row_366 = WSData.objects.get(tag_im_jahr=366)
-            q_abregelung = float(ws_row_366.abregelung_z or 0)
-            einspeich_366 = float(ws_row_366.einspeich or 0)
-            n_output_branch = einspeich_366 / 0.65
-            t_value = float(ws_row_366.ausspeich_rueckverstr or 0)
-        except WSData.DoesNotExist:
-            q_abregelung = 0
-            n_output_branch = 0
-            t_value = 0
+        # Single WS runtime source of truth: do not fall back to legacy WS row 366 calculations.
+        print(f"WS 365 service failed: {e}")
+        q_abregelung = 0
+        n_output_branch = 0
+        t_value = 0
     
     n_input_branch = q_abregelung  # Abregelung feeds into N
 
@@ -1056,221 +1049,20 @@ def compute_ws_diagram_reference(use_ws_overrides: bool = True):
 
 def recalculate_ws_data(stromverbr_override=None, use_diagram_reference=True):
     """
-    Recalculate all WS data based on Annual Electricity and Verbrauch data.
-    If stromverbr_override is provided AND use_diagram_reference is False,
-    that override is used instead of recomputing the diagram reference. This
-    lets a GoalSeek loop adjust Stromverbr. Raumw.korr. (row 366) without
-    re-deriving it from the diagram each iteration.
+    Legacy WSData recalculation entrypoint.
+
+    Runtime WS calculations are now fully handled by ws_365_service.
+    Keep this function as a compatibility shim for older call sites.
     """
+    from .ws_365_service import get_ws_365_data
 
-    # Get reference value for davon_raumw_korr from WS diagram
-    # This is the reference value used to calculate daily values
-    try:
-        verbrauch_292 = VerbrauchData.objects.get(code='2.9.2')
-        verbrauch_24 = VerbrauchData.objects.get(code='2.4')
-        davon_raumw_korr_366 = verbrauch_292.ziel * (verbrauch_24.ziel / 100)
-    except VerbrauchData.DoesNotExist:
-        davon_raumw_korr_366 = 0
-
-    diagram = compute_ws_diagram_reference()
-    pv_value = diagram["pv_value"]
-    wind_value = diagram["wind_value"]
-    hydro_value = diagram["hydro_value"]
-    bio_value = diagram["bio_value"]
-    solarstrom_366 = diagram["solarstrom_366"]
-    windstrom_366 = diagram["windstrom_366"]
-    sonst_kraft_konstant_366 = diagram["sonst_kraft_konstant_366"]
-
-    # PRESERVE stromverbr_raumwaerm_korr_366 from database!
-    # Only use diagram value if explicitly overriding OR if database value is 0/None
-    # Default is 1105556 - this is only changed by Balance WS Storage button
-    DEFAULT_STROMVERBR = 1105556.0
-    try:
-        existing_row_366 = WSData.objects.get(tag_im_jahr=366)
-        existing_stromverbr = existing_row_366.stromverbr_raumwaerm_korr or 0
-    except WSData.DoesNotExist:
-        existing_stromverbr = 0
-    
-    if stromverbr_override is not None and not use_diagram_reference:
-        # Explicit override from goal-seek or other process
-        stromverbr_raumwaerm_korr_366 = stromverbr_override
-    else:
-        # PERMANENT LOGIC: Always use baseline 1105556 unless explicitly overridden.
-        # This prevents accidental preservation of 'balanced' values during normal model runs.
-        stromverbr_raumwaerm_korr_366 = DEFAULT_STROMVERBR
-    
-    # ==================================================================================
-    # CALCULATE DAILY VALUES (ROWS 1-365) - 100% DATABASE-DRIVEN!
-    # ==================================================================================
-    # Build reference values for daily calculations
-    reference_values = {
-        # Legacy keys (for compatibility)
-        'WS_REF_STROMVERBR_366': stromverbr_raumwaerm_korr_366,
-        'WS_REF_DAVON_366': davon_raumw_korr_366,
-        'WS_REF_WIND_366': windstrom_366,
-        'WS_REF_SOLAR_366': solarstrom_366,
-        'WS_REF_HYDRO_366': sonst_kraft_konstant_366,
-        
-        # WS_REF_* keys that formulas expect
-        'WS_REF_BIO': bio_value,
-        'WS_REF_PV': pv_value,
-        'WS_REF_WIND': wind_value,
-        'WS_REF_HYDRO': hydro_value,
-        'WS_REF_ELY': diagram.get('ely_branch_value', 0),
-        'WS_REF_T_VALUE': diagram.get('t_value', 0),
-        'WS_REF_TOTAL_GEN': diagram.get('m_total', 0),
-        'WS_REF_AFTER_ELY': diagram.get('remaining_after_ely', 0),
-        'WS_REF_N_INPUT': diagram.get('n_input_branch', 0),
-        'WS_REF_N_OUTPUT': diagram.get('n_output_branch', 0),
-        
-        # Current formula keys (used by WS formulas)
-        'stromverbr_raumwaerm_korr_366': stromverbr_raumwaerm_korr_366,
-        'davon_raumw_korr_366': davon_raumw_korr_366,
-        'windstrom_366': windstrom_366,
-        'solarstrom_366': solarstrom_366,
-        'sonst_kraft_konstant_366': sonst_kraft_konstant_366,
-        'bio_value': bio_value,
-        # Sum will be calculated during recalc and added for second pass
+    data = get_ws_365_data(run_goal_seek=False)
+    current = data.get('current', {})
+    return {
+        'status': 'ws365_synced',
+        'storage_drift': current.get('storage_drift', 0.0),
+        'annual_electricity': current.get('annual_electricity', 0.0),
     }
-    
-    # Apply database formulas to calculate all daily values
-    daily_rows = WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365)
-    _apply_daily_ws_formulas(daily_rows, reference_values)
-    
-    # Reload daily_rows after calculation to get fresh sums
-    daily_rows = WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365)
-    
-    # ==================================================================================
-    # CALCULATE ROW 367 (Reference row for storage calculations)
-    # ==================================================================================
-    # Row 367 stores minimum cumulative values used as offsets
-    # First initialize ladezust_burtto_367 to 0 for first pass cumulative calculations
-    try:
-        row_367 = WSData.objects.get(tag_im_jahr=367)
-        row_367.ladezust_burtto = 0
-        row_367.ladezustand_netto = 0
-        row_367.save()
-    except WSData.DoesNotExist:
-        row_367 = WSData.objects.create(
-            tag_im_jahr=367,
-            datum_ref="Sum+1",
-            ladezust_burtto=0,
-            ladezustand_netto=0
-        )
-    
-    # Now run the second pass of daily calculations (with row_367 = 0)
-    # This will calculate cumulative values
-    _apply_daily_ws_formulas_cumulative(daily_rows, reference_values)
-    
-    # After cumulative calculations, update row 367 to minimum values
-    daily_rows = WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365)
-    daily_ladezust_values = [r.ladezust_burtto for r in daily_rows if r.ladezust_burtto is not None]
-    daily_ladezustand_values = [r.ladezustand_netto for r in daily_rows if r.ladezustand_netto is not None]
-    
-    row_367.ladezust_burtto = min(daily_ladezust_values) if daily_ladezust_values else 0
-    row_367.ladezustand_netto = min(daily_ladezustand_values) if daily_ladezustand_values else 0
-    row_367.save()
-    
-    # Re-run cumulative calculations with correct row_367 values
-    _apply_daily_ws_formulas_cumulative(daily_rows, reference_values)
-    
-    # ==================================================================================
-    # UPDATE ROW 366 (Annual sums)
-    # ==================================================================================
-    # Reload to get fresh data
-    daily_rows = WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365)
-    
-    # Prepare sums for row 366 calculations
-    sum_stromverbr = sum([r.stromverbr for r in daily_rows if r.stromverbr])
-    sum_davon_raumw = sum([r.davon_raumw_korr for r in daily_rows if r.davon_raumw_korr])
-    sum_stromverbr_raumwaerm = sum([r.stromverbr_raumwaerm_korr for r in daily_rows if r.stromverbr_raumwaerm_korr])
-    sum_windstrom = sum([r.windstrom for r in daily_rows if r.windstrom])
-    sum_solarstrom = sum([r.solarstrom for r in daily_rows if r.solarstrom])
-    sum_sonst_kraft = sum([r.sonst_kraft_konstant for r in daily_rows if r.sonst_kraft_konstant])
-    sum_wind_solar_konstant = sum([r.wind_solar_konstant for r in daily_rows if r.wind_solar_konstant])
-    sum_direktverbr = sum([r.direktverbr_strom for r in daily_rows if r.direktverbr_strom])
-    sum_ueberschuss = sum([r.ueberschuss_strom for r in daily_rows if r.ueberschuss_strom])
-    sum_einspeich = sum([r.einspeich for r in daily_rows if r.einspeich])
-    sum_abregelung_z = sum([r.abregelung_z for r in daily_rows if r.abregelung_z])
-    sum_mangel_last = sum([r.mangel_last for r in daily_rows if r.mangel_last])
-    sum_brennstoff = sum([r.brennstoff_ausgleichs_strom for r in daily_rows if r.brennstoff_ausgleichs_strom])
-    sum_speicher_ausgl = sum([r.speicher_ausgl_strom for r in daily_rows if r.speicher_ausgl_strom])
-    sum_ausspeich_rueck = sum([r.ausspeich_rueckverstr for r in daily_rows if r.ausspeich_rueckverstr])
-    sum_ausspeich_gas = sum([r.ausspeich_gas for r in daily_rows if r.ausspeich_gas])
-    
-    try:
-        row_366 = WSData.objects.get(tag_im_jahr=366)
-        
-        # Apply row 366 formulas from database
-        _apply_row_366_formulas(
-            row_366=row_366,
-            daily_rows=daily_rows,
-            davon_raumw_korr_366=davon_raumw_korr_366,
-            stromverbr_raumwaerm_korr_366=stromverbr_raumwaerm_korr_366,
-            sums={
-                'sum_stromverbr': sum_stromverbr,
-                'sum_davon_raumw': sum_davon_raumw,
-                'sum_stromverbr_raumwaerm': sum_stromverbr_raumwaerm,
-                'sum_windstrom': sum_windstrom,
-                'sum_solarstrom': sum_solarstrom,
-                'sum_sonst_kraft': sum_sonst_kraft,
-                'sum_wind_solar_konstant': sum_wind_solar_konstant,
-                'sum_direktverbr': sum_direktverbr,
-                'sum_ueberschuss': sum_ueberschuss,
-                'sum_einspeich': sum_einspeich,
-                'sum_abregelung_z': sum_abregelung_z,
-                'sum_mangel_last': sum_mangel_last,
-                'sum_brennstoff': sum_brennstoff,
-                'sum_speicher_ausgl': sum_speicher_ausgl,
-                'sum_ausspeich_rueck': sum_ausspeich_rueck,
-                'sum_ausspeich_gas': sum_ausspeich_gas,
-            }
-        )
-        
-        # ⚠️ CRITICAL: Explicitly set stromverbr_raumwaerm_korr (used by goal_seek)
-        # This field doesn't have a database formula, so it must be set directly
-        row_366.stromverbr_raumwaerm_korr = stromverbr_raumwaerm_korr_366
-        row_366.davon_raumw_korr = davon_raumw_korr_366
-        
-        row_366.save()
-    except WSData.DoesNotExist:
-        pass
-    
-    # Update Row 367 (reference row for formulas)
-    # Check for database formulas first, then fall back to default behavior
-    sums_dict = {
-        'sum_stromverbr': sum_stromverbr,
-        'sum_davon_raumw': sum_davon_raumw,
-        'sum_stromverbr_raumwaerm': sum_stromverbr_raumwaerm,
-        'sum_windstrom': sum_windstrom,
-        'sum_solarstrom': sum_solarstrom,
-        'sum_sonst_kraft': sum_sonst_kraft,
-        'sum_wind_solar_konstant': sum_wind_solar_konstant,
-        'sum_direktverbr': sum_direktverbr,
-        'sum_ueberschuss': sum_ueberschuss,
-        'sum_einspeich': sum_einspeich,
-        'sum_abregelung_z': sum_abregelung_z,
-        'sum_mangel_last': sum_mangel_last,
-        'sum_brennstoff': sum_brennstoff,
-        'sum_speicher_ausgl': sum_speicher_ausgl,
-        'sum_ausspeich_rueck': sum_ausspeich_rueck,
-        'sum_ausspeich_gas': sum_ausspeich_gas,
-    }
-    
-    try:
-        row_367 = WSData.objects.get(tag_im_jahr=367)
-        # Apply row 367 sum formulas from database
-        _apply_row_367_formulas(row_367=row_367, sums=sums_dict)
-        row_367.save()
-    except WSData.DoesNotExist:
-        # Create row 367 if it doesn't exist
-        row_367 = WSData.objects.create(
-            tag_im_jahr=367,
-            datum_ref="Sum+1"
-        )
-        # Apply row 367 sum formulas from database
-        _apply_row_367_formulas(row_367=row_367, sums=sums_dict)
-        row_367.save()
 
 
 @receiver(post_save, sender=RenewableData)
@@ -1441,51 +1233,9 @@ def ws_data_changed(sender, instance, **kwargs):
     This ensures that when you change a value in Row 366 (like ausspeich_gas),
     all dependent daily values (1-365) and other row 366/367 values are updated.
     """
-    global _cascade_in_progress
-    
-    # Skip if we're already in a cascade (prevents infinite recursion)
-    if _cascade_in_progress:
-        return
-    
-    # Skip if explicitly told to (during bulk operations)
-    if getattr(instance, '_skip_ws_cascade', False):
-        instance._skip_ws_cascade = False
-        return
-    
-    # Only trigger cascade for key rows (366, 367) that affect other rows
-    # Daily rows (1-365) are recalculated FROM formulas, not cascaded
-    if instance.tag_im_jahr not in [366, 367]:
-        return
-    
-    print(f"🔄 WSData Row {instance.tag_im_jahr} changed - triggering cascade recalculation...")
-    
-    from django.db import transaction
-    
-    def trigger_ws_cascade():
-        global _cascade_in_progress
-        if _cascade_in_progress:
-            return
-        
-        try:
-            _cascade_in_progress = True
-            
-            from simulator.ws_formula_service import recalculate_all_ws_data, get_ws_formula_evaluator
-            
-            # Clear evaluator cache
-            evaluator = get_ws_formula_evaluator()
-            evaluator.clear_cache()
-            
-            # Recalculate with 3 passes for proper cascading
-            # IMPORTANT: preserve_stromverbr=True to keep balance-adjusted value
-            stats = recalculate_all_ws_data(num_passes=3, preserve_stromverbr=True)
-            print(f"✅ WS cascade complete: {stats['updated']} updates, {stats['errors']} errors")
-            
-        except Exception as e:
-            print(f"❌ WS cascade error: {e}")
-        finally:
-            _cascade_in_progress = False
-    
-    transaction.on_commit(trigger_ws_cascade)
+    # Legacy WSData cascade is disabled.
+    # WS runtime balancing uses ws_365_service only.
+    return
 
 
 @receiver(post_save, sender=Formula)
@@ -1560,16 +1310,10 @@ def formula_changed(sender, instance, **kwargs):
             
             # Handle WS formulas - auto-recalculate all WS data
             elif instance.category == 'ws':
-                print(f"🔄 WS Formula {instance.key} changed - auto-recalculating all WS entries...")
-                from simulator.ws_formula_service import recalculate_all_ws_data, get_ws_formula_evaluator
-                
-                # Clear evaluator cache to ensure fresh formula loading
-                evaluator = get_ws_formula_evaluator()
-                evaluator.clear_cache()
-                
-                # Recalculate with 3 passes for proper cascading
-                stats = recalculate_all_ws_data(num_passes=3)
-                print(f"✅ WS auto-recalculated: {stats['updated']} updates, {stats['errors']} errors")
+                print(f"🔄 WS Formula {instance.key} changed - syncing WS365 targets...")
+                from simulator.ws_365_service import get_ws_365_data
+                get_ws_365_data(run_goal_seek=False)
+                print("✅ WS365 targets synced")
 
         except Exception as e:
              print(f"❌ Error in auto-recalculation for {instance.key}: {e}")

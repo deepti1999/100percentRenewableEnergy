@@ -20,11 +20,9 @@ from .models import (
 )
 from .recalc_service import run_full_recalc, recalc_all_renewables_full, unified_recalc_all
 from simulator.verbrauch_recalculator import recalc_all_verbrauch
-from simulator.ws_models import WSData
 from simulator.goal_seek import goal_seek
-from simulator.signals import compute_ws_diagram_reference, recalculate_ws_data, get_ws_constants
+from simulator.signals import compute_ws_diagram_reference, get_ws_constants
 from calculation_engine.bilanz_engine import calculate_bilanz_data, get_renewable_value
-from simulator.ws_formula_service import recalculate_all_ws_data
 
 # =============================================================================
 # LANDUSE VALIDATION HELPERS
@@ -1681,292 +1679,190 @@ def update_landuse_percent(request, pk):
 # CORE BALANCE FUNCTIONS (for unified balance system)
 # =============================================================================
 
-def _balance_ws_storage_core(ws_tolerance=10.0, max_iter=30, num_passes=3):
+def _balance_ws_storage_core(ws_tolerance=10.0, max_iter=30, num_passes=3, driver="solar"):
     """
-    FAST WS Storage balance logic - uses LIGHTWEIGHT direct column recalc.
-    Adjusts stromverbr_raumwaerm_korr (row 366) until ladezustand_netto (row 366) ≈ 0.
-    
-    OPTIMIZATION: Instead of calling full recalculate_ws_data (which processes 365 rows × 3 passes),
-    we directly update only the columns that depend on stromverbr_raumwaerm_korr.
-    
-    Returns dict with: is_balanced, final_balance, final_stromverbr, iterations, etc.
-    """
-    from django.db import transaction
-    
-    # Get initial reference value
-    diagram = compute_ws_diagram_reference(use_ws_overrides=False)
-    reference_stromverbr = diagram.get("stromverbr_raumwaerm_korr_366", 0) or 0
-    
-    iterations_log = []
-    
-    def storage_balance_fast(stromverbr_value: float) -> float:
-        """
-        FAST: Only update stromverbr_raumwaerm_korr and recalculate ladezustand_netto chain.
-        This is 10x+ faster than full recalculate_ws_data().
-        """
-        # Update row 366 stromverbr_raumwaerm_korr directly
-        WSData.objects.filter(tag_im_jahr=366).update(stromverbr_raumwaerm_korr=stromverbr_value)
-        
-        # Recalculate ONLY the columns that depend on stromverbr_raumwaerm_korr
-        # The dependency chain is:
-        # stromverbr_raumwaerm_korr_366 -> stromverbr (daily) -> direktverbr_strom -> 
-        # ueberschuss_strom -> einspeich/abregelung_z/mangel_last -> ladezustand_netto
-        
-        # Get all daily rows
-        daily_rows = list(WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365))
-        row_366 = WSData.objects.get(tag_im_jahr=366)
-        
-        # Recalculate affected columns for all 365 days
-        sum_einspeich = 0
-        sum_abregelung = 0
-        sum_ausspeich_rueck = 0
-        sum_ausspeich_gas = 0
-        
-        for row in daily_rows:
-            vp = row.verbrauch_promille or 0
-            # stromverbr = stromverbr_raumwaerm_korr_366 * verbrauch_promille / 1000
-            stromverbr = stromverbr_value * vp / 1000 if vp else 0
-            row.stromverbr = stromverbr
-            row.stromverbr_raumwaerm_korr = stromverbr
-            
-            # direktverbr_strom = MIN(wind_solar_konstant, stromverbr_raumwaerm_korr)
-            wsk = row.wind_solar_konstant or 0
-            direktverbr = min(wsk, stromverbr)
-            row.direktverbr_strom = direktverbr
-            
-            # ueberschuss_strom = wind_solar_konstant - direktverbr_strom
-            ueberschuss = wsk - direktverbr
-            row.ueberschuss_strom = ueberschuss
-            
-            # einspeich = ueberschuss_strom * 0.65 (ETA_STROM_GAS)
-            eta_strom_gas = 0.65
-            einspeich = ueberschuss * eta_strom_gas
-            row.einspeich = einspeich
-            
-            # abregelung_z = ueberschuss_strom * 0.35
-            abregelung = ueberschuss * 0.35
-            row.abregelung_z = abregelung
-            
-            # mangel_last = MAX(stromverbr_raumwaerm_korr - wind_solar_konstant, 0)
-            mangel = max(stromverbr - wsk, 0)
-            row.mangel_last = mangel
-            
-            sum_einspeich += einspeich
-            sum_abregelung += abregelung
-            sum_ausspeich_rueck += row.ausspeich_rueckverstr or 0
-            sum_ausspeich_gas += row.ausspeich_gas or 0
-        
-        # Bulk update daily rows
-        WSData.objects.bulk_update(daily_rows, [
-            'stromverbr', 'stromverbr_raumwaerm_korr', 'direktverbr_strom', 
-            'ueberschuss_strom', 'einspeich', 'abregelung_z', 'mangel_last'
-        ])
-        
-        # Calculate cumulative ladezustand_netto for each day
-        cumulative = 0
-        for row in daily_rows:
-            einspeich = row.einspeich or 0
-            ausspeich_rueck = row.ausspeich_rueckverstr or 0
-            ausspeich_gas = row.ausspeich_gas or 0
-            selbstentl = row.selbstentl or 0
-            
-            cumulative += einspeich - ausspeich_rueck - ausspeich_gas - selbstentl
-            row.ladezustand_netto = cumulative
-        
-        # Bulk update ladezustand_netto
-        WSData.objects.bulk_update(daily_rows, ['ladezustand_netto'])
-        
-        # Get day 1 and day 365 values for row 366 formula
-        day_1_ladezustand = daily_rows[0].ladezustand_netto if daily_rows else 0
-        day_365_ladezustand = daily_rows[-1].ladezustand_netto if daily_rows else 0
-        
-        # Update row 366 sums
-        row_366.stromverbr = stromverbr_value  # CRITICAL: Update row 366 stromverbr to match
-        row_366.stromverbr_raumwaerm_korr = stromverbr_value  # CRITICAL: Keep in sync!
-        row_366.einspeich = sum_einspeich
-        row_366.abregelung_z = sum_abregelung
-        row_366.ausspeich_rueckverstr = sum_ausspeich_rueck
-        row_366.ausspeich_gas = sum_ausspeich_gas
-        # ladezustand_netto for row 366 = day_365 - day_1 (formula from database)
-        row_366.ladezustand_netto = day_365_ladezustand - day_1_ladezustand
-        row_366._skip_ws_cascade = True  # Skip cascade during balance (we're handling it)
-        row_366.save()
-        
-        iterations_log.append({
-            "stromverbr": round(stromverbr_value, 2),
-            "ladezustand": round(row_366.ladezustand_netto, 2)
-        })
-        return row_366.ladezustand_netto or 0.0
-    
-    x0 = reference_stromverbr
-    x1 = reference_stromverbr * 1.05 if reference_stromverbr != 0 else 1.0
-    
-    # Use transaction.atomic for faster DB operations
-    with transaction.atomic():
-        final_value = goal_seek(storage_balance_fast, x0, x1, target=0.0, tol=1.0, max_iter=max_iter)
-        # Final pass with the converged value
-        storage_balance_fast(final_value)
-    
-    row_366 = WSData.objects.get(tag_im_jahr=366)
-    final_balance = row_366.ladezustand_netto or 0.0
-    is_balanced = abs(final_balance) < ws_tolerance
-    
-    # Load WS constants for return values
-    ws_consts_cockpit = get_ws_constants()
-    abregelung_ws = row_366.abregelung_z or 0.0
-    ely_surplus_ws = (row_366.einspeich or 0.0) / ws_consts_cockpit['ETA_STROM_GAS'] if ws_consts_cockpit['ETA_STROM_GAS'] else 0.0
+    WS storage balance using WS-365 runtime only (single source of truth).
 
-    return {
-        "is_balanced": is_balanced,
-        "final_balance": final_balance,
-        "final_stromverbr": final_value,
-        "reference_stromverbr": reference_stromverbr,
-        "abregelung_ws": abregelung_ws,
-        "ely_surplus_ws": ely_surplus_ws,
-        "iterations": len(iterations_log),
-    }
+    Legacy row-366 DB balancing is removed. This calls WS365 goal-seek balance and
+    reports storage drift as the balance metric.
+    """
+    from .ws_365_service import (
+        ELECTROLYSIS_EFFICIENCY,
+        apply_balanced_landuse,
+        apply_balanced_wind_landuse,
+        get_ws_365_data,
+    )
+
+    mode = str(driver or "solar").strip().lower()
+    if mode in {"lu_6", "lu6", "windpark", "windparkflaeche"}:
+        mode = "wind"
+    elif mode in {"lu_2.1", "lu_1.1", "solarpark", "solarflaeche"}:
+        mode = "solar"
+    if mode not in {"solar", "wind"}:
+        mode = "solar"
+
+    try:
+        before_data = get_ws_365_data(run_goal_seek=False)
+        before_current = before_data.get("current", {}) or {}
+        reference_stromverbr = float(before_current.get("annual_electricity") or 0.0)
+        before_drift = float(before_current.get("storage_drift") or 0.0)
+
+        # Already within tolerance: avoid unnecessary writes.
+        if abs(before_drift) <= float(ws_tolerance):
+            einspeich_sum = float(before_current.get("einspeich_sum") or 0.0)
+            return {
+                "is_balanced": True,
+                "final_balance": before_drift,
+                "final_stromverbr": reference_stromverbr,
+                "reference_stromverbr": reference_stromverbr,
+                "abregelung_ws": float(before_current.get("abregelung_sum") or 0.0),
+                "ely_surplus_ws": (
+                    einspeich_sum / ELECTROLYSIS_EFFICIENCY
+                    if ELECTROLYSIS_EFFICIENCY
+                    else 0.0
+                ),
+                "iterations": 0,
+            }
+
+        convergence_cycles = max(1, int(num_passes or 1))
+        if mode == "wind":
+            balance_result = apply_balanced_wind_landuse(
+                enable_heat_balance=False,
+                max_convergence_cycles=convergence_cycles,
+                heat_profile="quick",
+            )
+        else:
+            balance_result = apply_balanced_landuse(
+                enable_heat_balance=False,
+                max_convergence_cycles=convergence_cycles,
+                heat_profile="quick",
+            )
+
+        if not balance_result.get("success"):
+            return {
+                "is_balanced": False,
+                "final_balance": before_drift,
+                "final_stromverbr": reference_stromverbr,
+                "reference_stromverbr": reference_stromverbr,
+                "abregelung_ws": float(before_current.get("abregelung_sum") or 0.0),
+                "ely_surplus_ws": 0.0,
+                "iterations": 0,
+                "error": balance_result.get("error", "WS365 balance failed"),
+            }
+
+        after_data = get_ws_365_data(run_goal_seek=False)
+        after_current = after_data.get("current", {}) or {}
+        final_balance = float(after_current.get("storage_drift") or 0.0)
+        final_stromverbr = float(after_current.get("annual_electricity") or 0.0)
+        einspeich_sum = float(after_current.get("einspeich_sum") or 0.0)
+        iterations = int(balance_result.get("iterations") or 0) + int(
+            balance_result.get("convergence_cycles") or 0
+        )
+
+        return {
+            "is_balanced": abs(final_balance) <= float(ws_tolerance),
+            "final_balance": final_balance,
+            "final_stromverbr": final_stromverbr,
+            "reference_stromverbr": reference_stromverbr,
+            "abregelung_ws": float(after_current.get("abregelung_sum") or 0.0),
+            "ely_surplus_ws": (
+                einspeich_sum / ELECTROLYSIS_EFFICIENCY
+                if ELECTROLYSIS_EFFICIENCY
+                else 0.0
+            ),
+            "iterations": max(1, iterations),
+            "mode": mode,
+            "landuse_change": balance_result.get("landuse_change"),
+        }
+    except Exception as exc:
+        return {
+            "is_balanced": False,
+            "final_balance": 0.0,
+            "final_stromverbr": 0.0,
+            "reference_stromverbr": 0.0,
+            "abregelung_ws": 0.0,
+            "ely_surplus_ws": 0.0,
+            "iterations": 0,
+            "error": str(exc),
+        }
 
 
 def _balance_energy_lu6_core(energy_tolerance=1.0, max_iter=20, num_passes=1):
     """
-    FAST Energy balance logic - adjusts LU_6 (Windparkfläche) area until 
-    renewable supply matches verbrauch demand.
-    Same as _balance_energy_core but specifically for LU_6.
-    
-    OPTIMIZED: Skips full WS recalc during goal-seek iterations.
-    Only does fast renewable recalc. Full WS recalc happens ONCE at the end.
-    
-    Returns dict with: is_balanced, final_gap, final_ha, demand, renewable, etc.
+    Energy balance for LU_6 with WS365 as the only WS runtime.
+
+    This adjusts LU_6 to close the total energy gap and then refreshes WS365-derived
+    targets (9.3.1/9.3.4). No legacy WS row/column recalculation is used.
     """
-    from simulator.recalc_service import recalc_all_renewables_full
-    from simulator.ws_formula_service import recalculate_all_ws_data
-    from simulator.ws_models import WSData
-    from simulator.signals import get_ws_constants
-    
+    from simulator.recalc_service import _sync_ws365_targets, recalc_all_renewables_full
+    from .ws_365_service import get_ws_365_data
+
     driver_code = "LU_6"
     try:
         lu = LandUse.objects.get(code=driver_code)
     except LandUse.DoesNotExist:
         return {"is_balanced": False, "error": f"LandUse {driver_code} not found"}
 
-    # Pre-fetch verbrauch demand once (it doesn't change during goal-seek)
-    from calculation_engine.bilanz_engine import calculate_bilanz_data
     initial_bilanz = calculate_bilanz_data()
     cached_demand = initial_bilanz.get("verbrauch_gesamt", {}).get("ziel", {}).get("gesamt", 0) or 0
 
     def set_and_gap_fast(target_ha: float):
-        """
-        FAST: Update LandUse and recalc only renewables (skip WS).
-        WS recalc is expensive - we do it once at the end.
-        """
-        lu.target_ha = max(0, target_ha)
+        lu.target_ha = max(0, float(target_ha))
         lu.save(skip_cascade=True, force_recalc=False)
-        
-        # STEP 1: Trigger direct renewable dependents for this LandUse
         lu._recalculate_renewable_dependents()
-        
-        # STEP 2: Recalculate renewables (SKIP WS during goal-seek)
         recalc_all_renewables_full(exclude_ws_dependent=True)
-        
-        # Calculate renewable total - use 10.1 which is the total energy
+
         try:
-            r101 = RenewableData.objects.get(code='10.1')
-            renewable_total = r101.target_value or 0
+            renewable_total = float(RenewableData.objects.get(code="10.1").target_value or 0.0)
         except RenewableData.DoesNotExist:
-            renewable_total = 0
-        
-        gap = cached_demand - renewable_total
-        return gap, cached_demand, renewable_total, lu.target_ha
+            renewable_total = 0.0
+        gap = float(cached_demand) - renewable_total
+        return gap, float(cached_demand), renewable_total, float(lu.target_ha or 0.0)
 
-    base_ha = lu.target_ha or 0
+    base_ha = float(lu.target_ha or 0.0)
     gap0, demand0, renewable0, ha0 = set_and_gap_fast(base_ha)
+    final_gap, final_demand, final_renewable, final_ha = gap0, demand0, renewable0, ha0
 
-    if abs(gap0) <= energy_tolerance:
-        # Energy already balanced, but still need to balance WS storage
-        print("  Energy already balanced, proceeding with WS balance...")
-        print("  [FINAL] Running full renewable recalc (including WS-dependent codes)...")
-        recalc_all_renewables_full(exclude_ws_dependent=False)
-        
-        print("  [FINAL] Running full WS recalculation...")
-        recalculate_all_ws_data(num_passes=1)
-        
-        # BALANCE WS STORAGE: Adjust stromverbr to make ladezustand_netto = 0 for row 366
-        print("  [FINAL] Balancing WS storage (ladezustand_netto → 0)...")
-        ws_result = _balance_ws_storage_core(ws_tolerance=10.0, max_iter=10, num_passes=1)
-        ws_balanced = ws_result.get("is_balanced", False)
-        ws_balance_value = ws_result.get("final_balance", 0)
-        print(f"      WS balanced: {ws_balanced}, ladezustand_netto: {ws_balance_value:.2f} GWh")
-        
-        # Final renewable recalc to update 9.3.x codes with the new WS balance
-        print("  [FINAL] Final renewable recalc after WS balance...")
-        recalc_all_renewables_full(exclude_ws_dependent=False)
-        
-        print("  ✅ Energy + WS balance complete (energy was already balanced)")
-        
-        return {
-            "is_balanced": True,
-            "final_gap": gap0,
-            "final_ha": ha0,
-            "demand": demand0,
-            "renewable": renewable0,
-            "driver": driver_code,
-            "iterations": 0,
-            "ws_balanced": ws_balanced,
-            "ws_balance_value": ws_balance_value,
-        }
+    if abs(gap0) > float(energy_tolerance):
+        if gap0 > 0:
+            x1 = ha0 * 1.1 + 100 if ha0 == 0 else ha0 * 1.1
+        else:
+            x1 = max(ha0 * 0.9, 0)
 
-    # Choose second guess direction based on gap sign
-    if gap0 > 0:
-        x1 = ha0 * 1.1 + 100 if ha0 == 0 else ha0 * 1.1
-    else:
-        x1 = max(ha0 * 0.9, 0)
+        def gap_func(area):
+            g, _, _, _ = set_and_gap_fast(area)
+            return g
 
-    def gap_func(area):
-        g, _, _, _ = set_and_gap_fast(area)
-        return g
+        with transaction.atomic():
+            solved_ha = goal_seek(
+                gap_func,
+                ha0,
+                x1,
+                target=0.0,
+                tol=float(energy_tolerance),
+                max_iter=int(max_iter),
+            )
+            final_gap, final_demand, final_renewable, final_ha = set_and_gap_fast(solved_ha)
 
-    # Use transaction.atomic for faster DB operations
-    with transaction.atomic():
-        final_ha = goal_seek(gap_func, ha0, x1, target=0.0, tol=energy_tolerance, max_iter=max_iter)
-        final_gap, final_demand, final_renewable, final_ha = set_and_gap_fast(final_ha)
-
-    is_balanced = abs(final_gap) <= energy_tolerance
-    
-    print(f"\n  Energy balance complete:")
-    print(f"    Driver: {driver_code}")
-    print(f"    Final gap: {final_gap:.2f} GWh")
-    print(f"    Final ha: {final_ha:.2f}")
-    print(f"    Status: {'✅ BALANCED' if is_balanced else '⚠️  PARTIAL'}")
-    
-    # === FINAL STEP: Now that energy is balanced, do full chain ===
-    print("\n  [FINAL] Running full renewable recalc (including WS-dependent codes)...")
+    # Keep outputs consistent with WS365-derived targets.
     recalc_all_renewables_full(exclude_ws_dependent=False)
-    
-    print("  [FINAL] Running full WS recalculation...")
-    recalculate_all_ws_data(num_passes=1)
-    
-    # BALANCE WS STORAGE: Adjust stromverbr to make ladezustand_netto = 0 for row 366
-    print("  [FINAL] Balancing WS storage (ladezustand_netto → 0)...")
-    ws_result = _balance_ws_storage_core(ws_tolerance=10.0, max_iter=10, num_passes=1)
-    ws_balanced = ws_result.get("is_balanced", False)
-    ws_balance_value = ws_result.get("final_balance", 0)
-    print(f"      WS balanced: {ws_balanced}, ladezustand_netto: {ws_balance_value:.2f} GWh")
-    
-    # Final renewable recalc to update 9.3.x codes with the new WS balance
-    print("  [FINAL] Final renewable recalc after WS balance...")
+    _sync_ws365_targets()
     recalc_all_renewables_full(exclude_ws_dependent=False)
-    
-    print("  ✅ Full energy + WS balance chain complete\n")
-    
+
+    ws_current = (get_ws_365_data(run_goal_seek=False).get("current", {}) or {})
+    ws_balance_value = float(ws_current.get("storage_drift") or 0.0)
+    ws_balanced = abs(ws_balance_value) <= 10.0
+
     return {
-        "is_balanced": is_balanced,
+        "is_balanced": abs(final_gap) <= float(energy_tolerance),
         "final_gap": final_gap,
         "final_ha": final_ha,
         "initial_gap": gap0,
         "initial_ha": ha0,
-        "demand": cached_demand,
-        "renewable": cached_demand - final_gap,
+        "demand": final_demand,
+        "renewable": final_renewable,
         "driver": driver_code,
+        "iterations": 0 if abs(gap0) <= float(energy_tolerance) else None,
         "ws_balanced": ws_balanced,
         "ws_balance_value": ws_balance_value,
     }
@@ -1974,138 +1870,72 @@ def _balance_energy_lu6_core(energy_tolerance=1.0, max_iter=20, num_passes=1):
 
 def _balance_energy_core(driver="solar", energy_tolerance=1.0, max_iter=20, num_passes=1):
     """
-    FAST Energy balance logic - adjusts LandUse area until 
-    renewable supply matches verbrauch demand.
-    
-    OPTIMIZED: Skips full WS recalc during goal-seek iterations.
-    Only does fast renewable recalc. Full WS recalc happens ONCE at the end.
-    
-    Returns dict with: is_balanced, final_gap, final_ha, demand, renewable, etc.
+    Energy balance for LU_2.1/LU_1.1 with WS365 as the only WS runtime.
+
+    This adjusts LandUse to close the total energy gap and then refreshes
+    WS365-derived targets (9.3.1/9.3.4). No legacy WS row/column recalculation.
     """
-    from simulator.recalc_service import recalc_all_renewables_full
-    from simulator.ws_formula_service import recalculate_all_ws_data
-    from simulator.ws_models import WSData
-    from simulator.signals import get_ws_constants
-    
+    from simulator.recalc_service import _sync_ws365_targets, recalc_all_renewables_full
+    from .ws_365_service import get_ws_365_data
+
     driver_code = "LU_2.1" if driver == "solar" else "LU_1.1"
     try:
         lu = LandUse.objects.get(code=driver_code)
     except LandUse.DoesNotExist:
         return {"is_balanced": False, "error": f"LandUse {driver_code} not found"}
 
-    # Pre-fetch verbrauch demand once (it doesn't change during goal-seek)
-    from calculation_engine.bilanz_engine import calculate_bilanz_data
     initial_bilanz = calculate_bilanz_data()
     cached_demand = initial_bilanz.get("verbrauch_gesamt", {}).get("ziel", {}).get("gesamt", 0) or 0
 
     def set_and_gap_fast(target_ha: float):
-        """
-        FAST: Update LandUse and recalc only renewables (skip WS).
-        WS recalc is expensive - we do it once at the end.
-        """
-        lu.target_ha = max(0, target_ha)
+        lu.target_ha = max(0, float(target_ha))
         lu.save(skip_cascade=True, force_recalc=False)
-        
-        # STEP 1: Trigger direct renewable dependents for this LandUse
         lu._recalculate_renewable_dependents()
-        
-        # STEP 2: Recalculate renewables (SKIP WS during goal-seek)
         recalc_all_renewables_full(exclude_ws_dependent=True)
-        
-        # Calculate renewable total - use 10.1 which is the total energy
+
         try:
-            r101 = RenewableData.objects.get(code='10.1')
-            renewable_total = r101.target_value or 0
+            renewable_total = float(RenewableData.objects.get(code="10.1").target_value or 0.0)
         except RenewableData.DoesNotExist:
-            renewable_total = 0
-        
-        gap = cached_demand - renewable_total
-        return gap, cached_demand, renewable_total, lu.target_ha
+            renewable_total = 0.0
+        gap = float(cached_demand) - renewable_total
+        return gap, float(cached_demand), renewable_total, float(lu.target_ha or 0.0)
 
-    base_ha = lu.target_ha or 0
+    base_ha = float(lu.target_ha or 0.0)
     gap0, demand0, renewable0, ha0 = set_and_gap_fast(base_ha)
+    final_gap, final_demand, final_renewable, final_ha = gap0, demand0, renewable0, ha0
 
-    if abs(gap0) <= energy_tolerance:
-        # Energy already balanced, but still need to balance WS storage
-        print("  Energy already balanced, proceeding with WS balance...")
-        print("  [FINAL] Running full renewable recalc (including WS-dependent codes)...")
-        recalc_all_renewables_full(exclude_ws_dependent=False)
-        
-        print("  [FINAL] Running full WS recalculation...")
-        recalculate_all_ws_data(num_passes=1)
-        
-        # BALANCE WS STORAGE: Adjust stromverbr to make ladezustand_netto = 0 for row 366
-        print("  [FINAL] Balancing WS storage (ladezustand_netto → 0)...")
-        ws_result = _balance_ws_storage_core(ws_tolerance=10.0, max_iter=10, num_passes=1)
-        ws_balanced = ws_result.get("is_balanced", False)
-        ws_balance_value = ws_result.get("final_balance", 0)
-        print(f"      WS balanced: {ws_balanced}, ladezustand_netto: {ws_balance_value:.2f} GWh")
-        
-        # NOTE: Do NOT recalculate WS here - _balance_ws_storage_core already updated
-        # all columns correctly. Recalculating would overwrite row 366 ladezustand_netto
-        # with the formula (day_365 - day_1) which gives a different value.
-        
-        # Final renewable recalc to update 9.3.x codes with the new WS balance
-        print("  [FINAL] Final renewable recalc after WS balance...")
-        recalc_all_renewables_full(exclude_ws_dependent=False)
-        
-        print("  ✅ Energy + WS balance complete (energy was already balanced)")
-        
-        return {
-            "is_balanced": True,
-            "final_gap": gap0,
-            "final_ha": ha0,
-            "demand": demand0,
-            "renewable": renewable0,
-            "driver": driver_code,
-            "iterations": 0,
-            "ws_balanced": ws_balanced,
-            "ws_balance_value": ws_balance_value,
-        }
+    if abs(gap0) > float(energy_tolerance):
+        if gap0 > 0:
+            x1 = ha0 * 1.1 + 100 if ha0 == 0 else ha0 * 1.1
+        else:
+            x1 = max(ha0 * 0.9, 0)
 
-    # Choose second guess direction based on gap sign
-    if gap0 > 0:
-        x1 = ha0 * 1.1 + 100 if ha0 == 0 else ha0 * 1.1
-    else:
-        x1 = max(ha0 * 0.9, 0)
+        def gap_func(area):
+            g, _, _, _ = set_and_gap_fast(area)
+            return g
 
-    def gap_func(area):
-        g, _, _, _ = set_and_gap_fast(area)
-        return g
+        with transaction.atomic():
+            solved_ha = goal_seek(
+                gap_func,
+                ha0,
+                x1,
+                target=0.0,
+                tol=float(energy_tolerance),
+                max_iter=int(max_iter),
+            )
+            final_gap, final_demand, final_renewable, final_ha = set_and_gap_fast(solved_ha)
 
-    # Use transaction.atomic for faster DB operations
-    from django.db import transaction
-    with transaction.atomic():
-        final_ha = goal_seek(gap_func, ha0, x1, target=0.0, tol=energy_tolerance, max_iter=max_iter)
-        final_gap, final_demand, final_renewable, final_ha = set_and_gap_fast(final_ha)
-
-    # CRITICAL: After energy balance completes, trigger full renewable + WS recalculation
-    # This ensures WS data (9.3.x codes) and all WS rows are synced with the new energy balance
-    print("  [FINAL] Running full renewable recalc (including WS-dependent codes)...")
+    # Keep outputs consistent with WS365-derived targets.
     recalc_all_renewables_full(exclude_ws_dependent=False)
-    
-    print("  [FINAL] Running full WS recalculation...")
-    recalculate_all_ws_data(num_passes=1)
-    
-    # BALANCE WS STORAGE: Adjust stromverbr to make ladezustand_netto = 0 for row 366
-    print("  [FINAL] Balancing WS storage (ladezustand_netto → 0)...")
-    ws_result = _balance_ws_storage_core(ws_tolerance=10.0, max_iter=10, num_passes=1)
-    ws_balanced = ws_result.get("is_balanced", False)
-    ws_balance_value = ws_result.get("final_balance", 0)
-    print(f"      WS balanced: {ws_balanced}, ladezustand_netto: {ws_balance_value:.2f} GWh")
-    
-    # NOTE: Do NOT recalculate WS here - _balance_ws_storage_core already updated
-    # all columns correctly. Recalculating would overwrite row 366 ladezustand_netto
-    # with the formula (day_365 - day_1) which gives a different value.
-    
-    # Final renewable recalc to update 9.3.x codes with the new WS balance
-    print("  [FINAL] Final renewable recalc after WS balance...")
+    _sync_ws365_targets()
     recalc_all_renewables_full(exclude_ws_dependent=False)
-    
-    print("  ✅ Energy + WS balance complete")
+
+    ws_current = (get_ws_365_data(run_goal_seek=False).get("current", {}) or {})
+    ws_balance_value = float(ws_current.get("storage_drift") or 0.0)
+    ws_balanced = abs(ws_balance_value) <= 10.0
 
     return {
-        "is_balanced": abs(final_gap) <= energy_tolerance,
+        "is_balanced": abs(final_gap) <= float(energy_tolerance),
         "initial_gap": gap0,
         "final_gap": final_gap,
         "initial_ha": ha0,
@@ -2113,6 +1943,7 @@ def _balance_energy_core(driver="solar", energy_tolerance=1.0, max_iter=20, num_
         "demand": final_demand,
         "renewable": final_renewable,
         "driver": driver_code,
+        "iterations": 0 if abs(gap0) <= float(energy_tolerance) else None,
         "ws_balanced": ws_balanced,
         "ws_balance_value": ws_balance_value,
     }
@@ -2136,7 +1967,7 @@ def balance_full_system(request):
     
     driver = data.get("driver", "solar")
     max_outer_iterations = int(data.get("max_iterations", 5))
-    ws_tolerance = float(data.get("ws_tolerance", 10.0))  # GWh for ladezustand_netto
+    ws_tolerance = float(data.get("ws_tolerance", 10.0))  # GWh for WS365 storage drift
     energy_tolerance = float(data.get("energy_tolerance", 1.0))  # GWh for bilanz gap
     
     iteration_history = []
@@ -2160,12 +1991,17 @@ def balance_full_system(request):
         energy_gap = energy_result.get("final_gap", 0)
         print(f"      Energy Result: balanced={energy_balanced}, gap={energy_gap:.2f}")
         
-        # Step 2: Balance WS Storage (adjusts stromverbr to get ladezustand_netto ≈ 0)
+        # Step 2: Balance WS Storage (WS365 storage drift -> 0)
         print(f"  [2] Balancing WS Storage...")
-        ws_result = _balance_ws_storage_core(ws_tolerance=ws_tolerance, max_iter=5, num_passes=1)
+        ws_result = _balance_ws_storage_core(
+            ws_tolerance=ws_tolerance,
+            max_iter=5,
+            num_passes=1,
+            driver=driver,
+        )
         ws_balanced = ws_result.get("is_balanced", False)
         ws_balance_value = ws_result.get("final_balance", 0)
-        print(f"      WS Result: balanced={ws_balanced}, ladezustand_netto={ws_balance_value:.2f}")
+        print(f"      WS Result: balanced={ws_balanced}, storage_drift={ws_balance_value:.2f}")
         
         # Step 3: No WS -> renewable writes; keep fixed values from DB
         
@@ -2244,56 +2080,22 @@ def balance_full_system(request):
 
 def perform_ws_balance(max_iter: int = 30, tol: float = 10.0):
     """
-    GoalSeek Stromverbr. Raumw.korr. (row 366) until LadezustandNetto (row 366) == 0.
-    Returns a plain dict so it can be reused by multiple views.
+    Compatibility wrapper around WS365 storage balance.
     """
-    from django.db import transaction
-    
-    diagram = compute_ws_diagram_reference()
-    reference_stromverbr = diagram.get("stromverbr_raumwaerm_korr_366", 0) or 0
+    result = _balance_ws_storage_core(ws_tolerance=tol, max_iter=max_iter, num_passes=1, driver="solar")
+    ws_consts = get_ws_constants()
 
-    # First pass: seed state with the diagram reference value
-    # Must use use_diagram_reference=False so the override is actually applied
-    recalculate_ws_data(stromverbr_override=reference_stromverbr, use_diagram_reference=False)
-
-    def storage_balance(stromverbr_value: float) -> float:
-        # Override with proposed value; do not recompute from diagram inside the loop
-        recalculate_ws_data(stromverbr_override=stromverbr_value, use_diagram_reference=False)
-        try:
-            row_366 = WSData.objects.get(tag_im_jahr=366)
-            return row_366.ladezustand_netto or 0.0
-        except WSData.DoesNotExist:
-            return 0.0
-
-    # Set initial guesses for secant: current value and a small nudge
-    x0 = reference_stromverbr
-    x1 = reference_stromverbr * 1.05 if reference_stromverbr != 0 else 1.0
-
-    final_value = goal_seek(storage_balance, x0, x1, target=0.0, tol=tol, max_iter=max_iter)
-
-    # One final pass to persist the converged value
-    recalculate_ws_data(stromverbr_override=final_value, use_diagram_reference=False)
-    row_366 = WSData.objects.get(tag_im_jahr=366)
-
-    # Derived values for the Annual Electricity diagram after balancing
-    abregelung_ws = row_366.abregelung_z or 0.0
-    n1_eff = 0.65
-    ely_surplus_ws = (row_366.einspeich or 0.0) / n1_eff if n1_eff else 0.0
-    h2_surplus_ws = ely_surplus_ws * n1_eff
+    ely_surplus_ws = float(result.get("ely_surplus_ws") or 0.0)
+    h2_surplus_ws = ely_surplus_ws * float(ws_consts.get("ETA_STROM_GAS") or 0.0)
     gas_storage_ws = h2_surplus_ws
-    
-    if row_366.ausspeich_rueckverstr is not None:
-        t_value_ws = row_366.ausspeich_rueckverstr * 0.585
-    else:
-        t_value_ws = gas_storage_ws * 0.585
-
-    # No WS -> renewable writes; keep fixed values from DB
+    t_value_ws = gas_storage_ws * float(ws_consts.get("ETA_GAS_STROM") or 0.0)
 
     return {
-        "reference_stromverbr": reference_stromverbr,
-        "final_stromverbr": final_value,
-        "ladezustand_netto_row_366": row_366.ladezustand_netto,
-        "abregelung_ws": abregelung_ws,
+        "reference_stromverbr": float(result.get("reference_stromverbr") or 0.0),
+        "final_stromverbr": float(result.get("final_stromverbr") or 0.0),
+        # Backward-compatible key name; value is WS365 storage drift.
+        "ladezustand_netto_row_366": float(result.get("final_balance") or 0.0),
+        "abregelung_ws": float(result.get("abregelung_ws") or 0.0),
         "ely_surplus_ws": ely_surplus_ws,
         "h2_surplus_ws": h2_surplus_ws,
         "gas_storage_ws": gas_storage_ws,
@@ -2431,7 +2233,7 @@ def balance_all(request):
                 
                 # Step 2: Balance WS storage (adjust stromverbr to zero out storage)
                 print(f"  [2] Balance WS Storage...")
-                ws_result = _balance_ws_storage_core(ws_tolerance=ws_tolerance)
+                ws_result = _balance_ws_storage_core(ws_tolerance=ws_tolerance, driver=driver)
                 ws_summary = {
                     "final_stromverbr": ws_result.get("final_stromverbr"),
                     "ladezustand_netto_row_366": ws_result.get("final_balance", 0),
@@ -2448,9 +2250,10 @@ def balance_all(request):
                 renewable_total = get_renewable_value('10.1', use_target=True, fail_fast=False) or 0
                 gap_after_ws = demand - renewable_total
                 
-                # Re-check WS balance
-                row_366 = WSData.objects.get(tag_im_jahr=366)
-                final_ws_balance = row_366.ladezustand_netto or 0
+                # Re-check WS balance via WS365 drift (single source of truth)
+                from .ws_365_service import get_ws_365_data
+                ws_current = (get_ws_365_data(run_goal_seek=False).get("current", {}) or {})
+                final_ws_balance = float(ws_current.get("storage_drift") or 0.0)
 
                 cycles.append({
                     "iteration": idx + 1,
@@ -2493,28 +2296,32 @@ def balance_all(request):
 @require_http_methods(["POST"])
 def balance_ws_storage(request):
     """
-    GoalSeek Stromverbr. Raumw.korr. (row 366) until LadezustandNetto (row 366) == 0.
-    Uses the core function and returns HTTP response.
+    Balance WS365 storage drift to ~0 and return compatibility response fields.
     """
-    result = _balance_ws_storage_core()
-    
-    # Get additional values for response
-    row_366 = WSData.objects.get(tag_im_jahr=366)
+    result = _balance_ws_storage_core(driver="solar")
     ws_consts_cockpit = get_ws_constants()
+    from .ws_365_service import get_ws_365_data
+    ws_current = (get_ws_365_data(run_goal_seek=False).get("current", {}) or {})
     
-    h2_surplus_ws = result.get("ely_surplus_ws", 0) * ws_consts_cockpit['ETA_STROM_GAS']
+    h2_surplus_ws = float(result.get("ely_surplus_ws", 0) or 0.0) * ws_consts_cockpit['ETA_STROM_GAS']
     gas_storage_ws = h2_surplus_ws
-    
-    if row_366.ausspeich_rueckverstr is not None:
-        t_value_ws = row_366.ausspeich_rueckverstr * ws_consts_cockpit['ETA_GAS_STROM']
-    else:
-        t_value_ws = gas_storage_ws * ws_consts_cockpit['ETA_GAS_STROM']
+    ausspeich_sum = float(ws_current.get("ausspeich_sum") or 0.0)
+    t_value_ws = (
+        ausspeich_sum * ws_consts_cockpit['ETA_GAS_STROM']
+        if ausspeich_sum
+        else gas_storage_ws * ws_consts_cockpit['ETA_GAS_STROM']
+    )
 
     return JsonResponse({
         "status": "balanced" if result["is_balanced"] else "converged_with_residual",
-        "message": f"LadezustandNetto366 = {result['final_balance']:.2f} GWh (target: 0)" if not result["is_balanced"] else "Balanced successfully",
+        "message": (
+            f"Storage drift = {float(result.get('final_balance') or 0.0):.2f} GWh (target: 0)"
+            if not result["is_balanced"]
+            else "Balanced successfully"
+        ),
         "reference_stromverbr": result.get("reference_stromverbr", 0),
         "final_stromverbr": result.get("final_stromverbr", 0),
+        # Backward-compatible key name; value now comes from WS365 drift.
         "ladezustand_netto_row_366": result.get("final_balance", 0),
         "is_balanced": result["is_balanced"],
         "abregelung_ws": result.get("abregelung_ws", 0),
@@ -2523,6 +2330,7 @@ def balance_ws_storage(request):
         "gas_storage_ws": gas_storage_ws,
         "t_value_ws": t_value_ws,
         "iterations": result.get("iterations", 0),
+        "error": result.get("error"),
     })
 
 
@@ -2741,25 +2549,25 @@ def run_renewables_recalc_view(request):
 @require_http_methods(["POST"])
 def recalc_ws_formulas_view(request):
     """
-    Recalculate ALL WS data using formulas from WSFormulaTemplate.
-    
-    UPDATED: 9.3.1 and 9.3.4 are fixed and are not updated from WS.
+    Refresh WS365-derived targets (9.3.1 / 9.3.4) from WS365 runtime service.
     """
     import time
     start = time.time()
     
     try:
-        # from simulator.ws_formula_service import recalculate_all_ws_data (moved to top)
-        # Step 1: Recalculate WS data
-        ws_stats = recalculate_all_ws_data()
+        from .ws_365_service import get_ws_365_data
+        ws_data = get_ws_365_data(run_goal_seek=False)
+        ws_current = ws_data.get("current", {}) or {}
         
         duration_ms = int((time.time() - start) * 1000)
         
         return JsonResponse({
             'status': 'ok',
-            'message': f"WS Recalculation complete! WS: {ws_stats['updated']}",
-            'ws_updated': ws_stats['updated'],
-            'ws_errors': ws_stats['errors'],
+            'message': "WS365 refresh complete (9.3.1 / 9.3.4 synced)",
+            'ws_updated': 2,
+            'ws_errors': 0,
+            'storage_drift': float(ws_current.get('storage_drift') or 0.0),
+            'annual_electricity': float(ws_current.get('annual_electricity') or 0.0),
             'duration_ms': duration_ms,
         })
     except Exception as e:
@@ -3285,21 +3093,25 @@ def _coerce_choice(value, allowed, default):
 
 def _compute_ws_balance_runtime_limit_seconds(summary):
     """Compute runtime limit from configured/base budget and expected cycle count."""
+    summary = summary or {}
     configured_cycles = _coerce_int(
-        (summary or {}).get('max_convergence_cycles'),
+        summary.get('max_convergence_cycles'),
         default=1,
         minimum=1,
         maximum=24,
     )
+    heat_profile = (summary.get('heat_profile') or 'quick').strip().lower()
+    is_full_heat = bool(summary.get('enable_heat_balance')) and heat_profile == 'full'
+    default_base_runtime = 300.0 if is_full_heat else 180.0
+    default_per_cycle = 80.0 if is_full_heat else 35.0
     base_runtime = _coerce_float(
-        # Keep stale-run detection tolerant to transient dyno/network jitter.
-        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS", "180"),
-        default=180.0,
-        minimum=60.0,
+        os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS"),
+        default=default_base_runtime,
+        minimum=120.0,
     )
     per_cycle_runtime = _coerce_float(
-        os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS", "35"),
-        default=35.0,
+        os.environ.get("WS_BALANCE_RUNTIME_PER_CYCLE_SECONDS"),
+        default=default_per_cycle,
         minimum=5.0,
     )
     return max(base_runtime, configured_cycles * per_cycle_runtime)

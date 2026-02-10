@@ -522,7 +522,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function waitForBalanceJob(runId, mode, btn) {
-        const maxWaitMs = 180000; // 3-minute hard cap including reconnect retries.
+        const maxWaitMs = 300000; // 5-minute cap to cover full-heat balance runs.
         const startedAt = Date.now();
         let transientErrors = 0;
         const maxTransientErrors = 6;

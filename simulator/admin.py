@@ -834,28 +834,17 @@ class WSDataAdmin(admin.ModelAdmin):
     
     def recalculate_all_ws(self, request, queryset):
         """
-        Manual full recalculation of ALL WS data using formulas from the Formula model.
-        
-        NOTE: This is rarely needed! WS values now auto-recalculate when:
-        - A WS formula is changed (via signals)
-        - Row 366 or 367 values are edited manually (via signals)
-        - Renewable/Verbrauch data changes that affect WS inputs
-        
-        Use this only for recovery/debugging purposes.
+        Manual WS365 refresh for WS-derived renewable targets.
         """
         try:
-            from simulator.ws_formula_service import recalculate_all_ws_data, get_ws_formula_evaluator
-            
-            # Clear cache before recalculation
-            evaluator = get_ws_formula_evaluator()
-            evaluator.clear_cache()
-            
-            stats = recalculate_all_ws_data(num_passes=3)
+            from simulator.ws_365_service import get_ws_365_data
+            ws_data = get_ws_365_data(run_goal_seek=False)
+            current = ws_data.get('current', {}) or {}
             
             self.message_user(
                 request,
-                f"✅ WS Full Recalculation complete! "
-                f"Updated: {stats['updated']} | Errors: {stats['errors']} | Skipped: {stats['skipped']}",
+                f"✅ WS365 refresh complete! "
+                f"Storage drift: {float(current.get('storage_drift') or 0.0):.2f} GWh",
                 level='SUCCESS'
             )
         except Exception as e:
@@ -864,7 +853,7 @@ class WSDataAdmin(admin.ModelAdmin):
                 f"❌ Recalculation failed: {str(e)}",
                 level='ERROR'
             )
-    recalculate_all_ws.short_description = "🔄 Force Full WS Recalculation (debug only)"
+    recalculate_all_ws.short_description = "🔄 Refresh WS365 Targets"
 
 
 @admin.register(WSFormulaTemplate)
@@ -999,18 +988,17 @@ class WSFormulaTemplateAdmin(admin.ModelAdmin):
 
     def recalculate_all_ws(self, request, queryset=None):
         """
-        Recalculate ALL WS data using formulas from WSFormulaTemplate.
-        This can be called as an action or directly.
+        Refresh WS365-derived targets; kept for compatibility with old admin button.
         """
         try:
-            from simulator.ws_formula_service import recalculate_all_ws_data
-            
-            stats = recalculate_all_ws_data()
+            from simulator.ws_365_service import get_ws_365_data
+            ws_data = get_ws_365_data(run_goal_seek=False)
+            current = ws_data.get('current', {}) or {}
             
             self.message_user(
                 request,
-                f"✅ WS Recalculation complete! "
-                f"Updated: {stats['updated']} | Errors: {stats['errors']} | Skipped: {stats['skipped']}",
+                f"✅ WS365 refresh complete! "
+                f"Storage drift: {float(current.get('storage_drift') or 0.0):.2f} GWh",
                 level='SUCCESS'
             )
         except Exception as e:
@@ -1024,7 +1012,7 @@ class WSFormulaTemplateAdmin(admin.ModelAdmin):
         from django.urls import reverse
         return redirect(reverse('admin:simulator_wsformulatemplate_changelist'))
         
-    recalculate_all_ws.short_description = "🔄 Recalculate ALL WS Data (using formulas)"
+    recalculate_all_ws.short_description = "🔄 Refresh WS365 Targets"
 
     def get_urls(self):
         from django.urls import path

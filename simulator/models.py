@@ -1005,6 +1005,8 @@ class VerbrauchData(models.Model):
         skip_cascade = kwargs.pop('skip_cascade', False)
         skip_recalc = kwargs.pop('skip_recalc', False)
         skip_rebalance = kwargs.pop('skip_rebalance', False)  # Skip percentage rebalancing
+        # Hint for post_save receiver: skip expensive renewable recalc for controlled/internal saves.
+        self._skip_verbrauch_recalc = bool(skip_recalc)
         old_status = None
         old_ziel = None
         old_user_percent = None
@@ -1082,6 +1084,7 @@ class VerbrauchData(models.Model):
 
         # Skip full recalc - too slow for individual saves
         # Use "Recalculate All" button for full system recalc
+        self._skip_verbrauch_recalc = False
     
     def _recalculate_dependents(self):
         """
