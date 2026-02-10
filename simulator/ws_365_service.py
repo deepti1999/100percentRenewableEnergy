@@ -20,6 +20,13 @@ ELECTROLYSIS_EFFICIENCY = 0.65
 RUECKVERSTROEMUNG_EFFICIENCY = 0.585
 FIXED_82_TARGET = 12000.0
 
+# Module-level cache for WS base data (promille arrays).
+# These values NEVER change during balance — they are static reference data.
+# Caching avoids fetching 365 rows from the database on every call.
+_ws_base_data_cache = None
+_ws_base_data_cache_time = 0.0
+_WS_BASE_DATA_CACHE_TTL = 300.0  # Refresh every 5 minutes
+
 
 def _validate_required_landuse(required_landuse: float, parent_target_ha: Optional[float], code: str) -> float:
     """
@@ -41,15 +48,22 @@ def _validate_required_landuse(required_landuse: float, parent_target_ha: Option
 
 
 def get_ws_base_data():
-    """Load WS data for 365 days."""
+    """Load WS data for 365 days (cached — promille values are static)."""
+    global _ws_base_data_cache, _ws_base_data_cache_time
+    now = time.monotonic()
+    if _ws_base_data_cache is not None and (now - _ws_base_data_cache_time) < _WS_BASE_DATA_CACHE_TTL:
+        return _ws_base_data_cache
+
     ws_entries = list(WSData.objects.filter(tag_im_jahr__gte=1, tag_im_jahr__lte=365).order_by('tag_im_jahr'))
     
-    return {
+    _ws_base_data_cache = {
         'solar_promille': [ws.solar_promille or 0 for ws in ws_entries],
         'wind_promille': [ws.wind_promille or 0 for ws in ws_entries],
         'heizung_abwaerm_promille': [ws.heizung_abwaerm_promille or 0 for ws in ws_entries],
         'verbrauch_promille': [ws.verbrauch_promille or 0 for ws in ws_entries],
     }
+    _ws_base_data_cache_time = now
+    return _ws_base_data_cache
 
 
 def get_fixed_values():
@@ -81,7 +95,7 @@ def get_fixed_values():
     }
 
 
-def calculate_365_days(solar_value, ws_data, fixed_values, wind_value=None):
+def calculate_365_days(solar_value, ws_data, fixed_values, wind_value=None, skip_daily_data=False):
     """
     Calculate all columns for 365 days given a Solar value.
     
@@ -90,6 +104,7 @@ def calculate_365_days(solar_value, ws_data, fixed_values, wind_value=None):
         ws_data: Dictionary with promille arrays (from get_ws_base_data)
         fixed_values: Dictionary with fixed values (from get_fixed_values)
         wind_value: Optional wind override in GWh (defaults to fixed ziel_911)
+        skip_daily_data: If True, skip building the per-day dicts (much faster for goal seek)
     
     Returns:
         Dictionary with all results and daily data
@@ -198,33 +213,34 @@ def calculate_365_days(solar_value, ws_data, fixed_values, wind_value=None):
     ausspeich_rueckverstr_adjustment = sum(ausspeich_rueckverstr) * RUECKVERSTROEMUNG_EFFICIENCY
     annual_electricity = base_electricity - einspeich_adjustment - abregelung_total + ziel_914 + ausspeich_rueckverstr_adjustment
     
-    # Build daily data for frontend
+    # Build daily data for frontend (skip during goal seek for performance)
     daily_data = []
-    for d in range(365):
-        daily_data.append({
-            'day': d + 1,
-            'solar_promille': solar_promille[d],
-            'wind_promille': wind_promille[d],
-            'heizung_abwaerm_promille': heizung_abwaerm_promille[d],
-            'verbrauch_promille': verbrauch_promille[d],
-            'stromverbrauch': round(stromverbrauch[d], 2),
-            'davon_raumw_korr': round(davon_raumw_korr[d], 2),
-            'stromverbr_raumw_korr': round(stromverbr_raumw_korr[d], 2),
-            'solar_strom': round(solar_strom[d], 2),
-            'wind_strom': round(wind_strom[d], 2),
-            'sonst_kraftw': round(sonst_kraftw[d], 2),
-            'wind_solar_konstant': round(wind_solar_konstant[d], 2),
-            'direktverbr_strom': round(direktverbr_strom[d], 2),
-            'ueberschuss_strom': round(ueberschuss_strom[d], 2),
-            'einspeich': round(einspeich[d], 2),
-            'abregelung': round(abregelung[d], 2),
-            'mangel_last': round(mangel_last[d], 2),
-            'brennstoff_ausgleich': round(brennstoff_ausgleich[d], 2),
-            'speicher_ausgl_strom': round(speicher_ausgl_strom[d], 2),
-            'ausspeich_rueckverstr': round(ausspeich_rueckverstr[d], 2),
-            'ausspeich_gas': round(ausspeich_gas[d], 2),
-            'ladezust_brutto': round(ladezust_brutto[d], 2),
-        })
+    if not skip_daily_data:
+        for d in range(365):
+            daily_data.append({
+                'day': d + 1,
+                'solar_promille': solar_promille[d],
+                'wind_promille': wind_promille[d],
+                'heizung_abwaerm_promille': heizung_abwaerm_promille[d],
+                'verbrauch_promille': verbrauch_promille[d],
+                'stromverbrauch': round(stromverbrauch[d], 2),
+                'davon_raumw_korr': round(davon_raumw_korr[d], 2),
+                'stromverbr_raumw_korr': round(stromverbr_raumw_korr[d], 2),
+                'solar_strom': round(solar_strom[d], 2),
+                'wind_strom': round(wind_strom[d], 2),
+                'sonst_kraftw': round(sonst_kraftw[d], 2),
+                'wind_solar_konstant': round(wind_solar_konstant[d], 2),
+                'direktverbr_strom': round(direktverbr_strom[d], 2),
+                'ueberschuss_strom': round(ueberschuss_strom[d], 2),
+                'einspeich': round(einspeich[d], 2),
+                'abregelung': round(abregelung[d], 2),
+                'mangel_last': round(mangel_last[d], 2),
+                'brennstoff_ausgleich': round(brennstoff_ausgleich[d], 2),
+                'speicher_ausgl_strom': round(speicher_ausgl_strom[d], 2),
+                'ausspeich_rueckverstr': round(ausspeich_rueckverstr[d], 2),
+                'ausspeich_gas': round(ausspeich_gas[d], 2),
+                'ladezust_brutto': round(ladezust_brutto[d], 2),
+            })
     
     return {
         'ladezust_day1': ladezust_brutto[0],
@@ -262,7 +278,7 @@ def goal_seek_optimal_solar(ws_data, fixed_values, tolerance=0.1, max_iterations
     
     for iteration in range(max_iterations):
         solar_mid = (solar_low + solar_high) / 2
-        result = calculate_365_days(solar_mid, ws_data, fixed_values)
+        result = calculate_365_days(solar_mid, ws_data, fixed_values, skip_daily_data=True)
         drift = result['storage_drift']
         
         if abs(drift) < tolerance:
@@ -299,7 +315,8 @@ def goal_seek_optimal_wind(ws_data, fixed_values, tolerance=0.1, max_iterations=
             fixed_values['ziel_912'],
             ws_data,
             fixed_values,
-            wind_value=wind_candidate
+            wind_value=wind_candidate,
+            skip_daily_data=True,
         )
         return float(result['storage_drift']), result
 
@@ -618,20 +635,20 @@ def _balance_heat_sectors_after_ws(mode="quick"):
 
     if profile == "full":
         # Full profile still needs bounded runtime for async job guarantees.
-        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_FULL_MAX_SECONDS", "60"))
-        settle_rounds_default = 3
-        eval_settle_rounds = 2
-        coordinate_passes = 3
-        solver_iterations = 8
-        renewable_max_passes = 3
-    else:
-        # Timeout-safe profile for sync request paths.
-        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "20"))
+        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_FULL_MAX_SECONDS", "35"))
         settle_rounds_default = 2
         eval_settle_rounds = 1
-        coordinate_passes = 1
-        solver_iterations = 4
+        coordinate_passes = 2
+        solver_iterations = 5
         renewable_max_passes = 2
+    else:
+        # Timeout-safe profile for sync request paths.
+        max_seconds = float(os.environ.get("WS_HEAT_BALANCE_MAX_SECONDS", "15"))
+        settle_rounds_default = 1
+        eval_settle_rounds = 1
+        coordinate_passes = 1
+        solver_iterations = 3
+        renewable_max_passes = 1
 
     deadline = time.monotonic() + max(5.0, max_seconds)
 

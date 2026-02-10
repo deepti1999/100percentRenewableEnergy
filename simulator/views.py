@@ -3102,8 +3102,8 @@ def _compute_ws_balance_runtime_limit_seconds(summary):
     )
     heat_profile = (summary.get('heat_profile') or 'quick').strip().lower()
     is_full_heat = bool(summary.get('enable_heat_balance')) and heat_profile == 'full'
-    default_base_runtime = 300.0 if is_full_heat else 180.0
-    default_per_cycle = 80.0 if is_full_heat else 35.0
+    default_base_runtime = 180.0 if is_full_heat else 120.0
+    default_per_cycle = 45.0 if is_full_heat else 25.0
     base_runtime = _coerce_float(
         os.environ.get("WS_BALANCE_MAX_RUNTIME_SECONDS"),
         default=default_base_runtime,
@@ -3211,8 +3211,8 @@ def ws_api_start_balance_job(request):
         return JsonResponse({'success': False, 'error': 'Invalid mode'}, status=400)
 
     default_max_cycles = _coerce_int(
-        os.environ.get("WS_BALANCE_MAX_CONVERGENCE_CYCLES", "3"),
-        default=3,
+        os.environ.get("WS_BALANCE_MAX_CONVERGENCE_CYCLES", "2"),
+        default=2,
         minimum=1,
         maximum=24,
     )
@@ -3234,9 +3234,9 @@ def ws_api_start_balance_job(request):
         default=default_heat_balance,
     )
     default_heat_profile = _coerce_choice(
-        os.environ.get("WS_BALANCE_HEAT_PROFILE", "full"),
+        os.environ.get("WS_BALANCE_HEAT_PROFILE", "quick"),
         allowed={'quick', 'full'},
-        default='full',
+        default='quick',
     )
     heat_profile = _coerce_choice(
         payload.get('heat_profile'),
@@ -3244,8 +3244,8 @@ def ws_api_start_balance_job(request):
         default=default_heat_profile,
     )
     if enable_heat_balance and heat_profile == 'full':
-        # Prevent under-constrained runs like cycles=2 that frequently fail on Heroku.
-        max_convergence_cycles = max(3, max_convergence_cycles)
+        # Ensure at least 2 cycles for full heat balance convergence.
+        max_convergence_cycles = max(2, max_convergence_cycles)
 
     # Guard against concurrent WS balance jobs mutating the same model graph.
     # Concurrent runs can fight each other and produce non-convergence/timeouts.
